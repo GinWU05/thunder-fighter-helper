@@ -1,0 +1,96 @@
+{
+  "source": "data/raw/stage-loot/samples.json",
+  "stages": [
+    {
+      "stageId": 1,
+      "specialDrops": [
+        {
+          "name": "小敌机残骸lv1",
+          "type": "消耗品",
+          "category": "小敌机的残骸"
+        }
+      ],
+      "stageLootRecord": {
+        "recordOffset": "0x051c",
+        "rawArray": [
+          1,
+          1,
+          1320,
+          1,
+          0,
+          0,
+          10
+        ],
+        "fields": {
+          "f0": 1,
+          "groupId": 1,
+          "linkedRecordOffset": 1320
+        }
+      }
+    },
+    {
+      "stageId": 2,
+      "specialDrops": [
+        {
+          "name": "大敌机残骸lv1",
+          "type": "消耗品",
+          "category": "大敌机的残骸"
+        },
+        {
+          "name": "量子科技设计图",
+          "type": "进阶材料",
+          "tier": "三星材料"
+        }
+      ],
+      "stageLootRecord": {
+        "recordOffset": "0x0538",
+        "rawArray": [
+          1,
+          2,
+          1348,
+          2,
+          0,
+          0,
+          10
+        ],
+        "fields": {
+          "f0": 1,
+          "groupId": 2,
+          "linkedRecordOffset": 1348
+        }
+      }
+    },
+    {
+      "stageId": 4,
+      "specialDrops": [
+        {
+          "name": "BOSS的残骸lv1",
+          "type": "消耗品",
+          "category": "BOSS的残骸"
+        },
+        {
+          "name": "米加科技设计图",
+          "type": "进阶材料",
+          "tier": "四星材料"
+        }
+      ],
+      "stageLootRecord": {
+        "recordOffset": "0x0570",
+        "rawArray": [
+          1,
+          4,
+          1404,
+          3,
+          0,
+          0,
+          10
+        ],
+        "fields": {
+          "f0": 1,
+          "groupId": 3,
+          "linkedRecordOffset": 1404
+        }
+      }
+    }
+  ]
+}

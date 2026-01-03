@@ -1,0 +1,78 @@
+{
+  "source": "stage_normal_0_stage-info_data.bin",
+  "stageCount": 8,
+  "stages": [
+    {
+      "stageIndex": 0,
+      "stageKey": "stage-0_data",
+      "name": "第1关·雷霆战机",
+      "description": "和莉莎一起进行雷霆战机的试驾驶。",
+      "enemyPower": 360,
+      "staminaCost": 5,
+      "dailyLimit": -1
+    },
+    {
+      "stageIndex": 1,
+      "stageKey": "stage-1_data",
+      "name": "第2关·神魔觉醒",
+      "description": "受到袭击！赶快出击消灭敌人！",
+      "enemyPower": 480,
+      "staminaCost": 10,
+      "dailyLimit": 4
+    },
+    {
+      "stageIndex": 2,
+      "stageKey": "stage-2_data",
+      "name": "第3关·希望水晶",
+      "description": "敌人可能会去掠夺下个能源站的水晶，罗伊决定和莉莎一起前往防止更多悲剧发生。",
+      "enemyPower": 600,
+      "staminaCost": 5,
+      "dailyLimit": -1
+    },
+    {
+      "stageIndex": 3,
+      "stageKey": "stage-3_data",
+      "name": "第4关·机甲战神",
+      "description": "找到了能源站，但是敌军王牌飞行员莉亚正驾驶机甲战神也赶到了，苦战。",
+      "enemyPower": 720,
+      "staminaCost": 15,
+      "dailyLimit": 2
+    },
+    {
+      "stageIndex": 4,
+      "stageKey": "stage-4_data",
+      "name": "第5关·追击",
+      "description": "很遗憾水晶还是被抢走了，罗伊跟踪敌人进行追击。",
+      "enemyPower": 900,
+      "staminaCost": 5,
+      "dailyLimit": -1
+    },
+    {
+      "stageIndex": 5,
+      "stageKey": "stage-5_data",
+      "name": "第6关·陷阱",
+      "description": "看到水晶就在眼前，没想到竟是一个陷阱。",
+      "enemyPower": 936,
+      "staminaCost": 10,
+      "dailyLimit": 4
+    },
+    {
+      "stageIndex": 6,
+      "stageKey": "stage-6_data",
+      "name": "第7关·空间跳跃",
+      "description": "莉莎开始调试战机的空间跳跃功能，准备进行跳跃逃脱敌人的陷阱。",
+      "enemyPower": 972,
+      "staminaCost": 5,
+      "dailyLimit": -1
+    },
+    {
+      "stageIndex": 7,
+      "stageKey": "stage-7_data",
+      "name": "第8关·灰烬",
+      "description": "使用跳跃功能没有到达预定坐标，竟然到了白羊座的军事总部，眼前出现的是-布莱德。",
+      "enemyPower": 1116,
+      "staminaCost": 15,
+      "dailyLimit": 2
+    }
+  ]
+}
