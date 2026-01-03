@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Bebas_Neue, Space_Grotesk } from "next/font/google";
+import { Noto_Sans_SC, Oxanium } from "next/font/google";
 import "./globals.css";
 
-const displayFont = Bebas_Neue({
-  weight: "400",
+const displayFont = Oxanium({
+  weight: ["400", "600", "700"],
   variable: "--font-display",
   subsets: ["latin"],
 });
 
-const bodyFont = Space_Grotesk({
+const bodyFont = Noto_Sans_SC({
+  weight: ["400", "500", "600", "700"],
   variable: "--font-body",
   subsets: ["latin"],
 });
