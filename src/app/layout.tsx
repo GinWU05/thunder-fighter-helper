@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_SC, Oxanium } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,13 @@ const bodyFont = Noto_Sans_SC({
 export const metadata: Metadata = {
   title: "雷霆战机助手",
   description: "雷霆战机体力计算与规划工具。",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

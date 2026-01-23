@@ -470,7 +470,7 @@ export default function Home() {
   const cardBase =
     "panel p-6 motion-safe:animate-[fade-up_0.7s_ease-out]";
   const inputBase =
-    "input-field mt-2 w-full text-sm font-medium text-foreground";
+    "input-field mt-2 w-full text-base sm:text-sm font-medium text-foreground";
 
   const animatedHours = useCountUp(
     hoursLeft,
