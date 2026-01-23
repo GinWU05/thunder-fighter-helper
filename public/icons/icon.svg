@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#050812" />
+  <rect
+    x="40"
+    y="40"
+    width="432"
+    height="432"
+    rx="72"
+    fill="#0a1630"
+    stroke="#2fd2ff"
+    stroke-width="8"
+  />
+  <polygon
+    points="300,72 160,276 250,276 210,440 360,240 270,240"
+    fill="#ffc84a"
+  />
+  <polygon
+    points="300,72 160,276 250,276 210,440 360,240 270,240"
+    fill="none"
+    stroke="#ff9b2f"
+    stroke-width="10"
+    stroke-linejoin="round"
+  />
+</svg>
