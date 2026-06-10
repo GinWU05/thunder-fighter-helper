@@ -471,6 +471,8 @@ export default function Home() {
     "panel p-6 motion-safe:animate-[fade-up_0.7s_ease-out]";
   const inputBase =
     "input-field mt-2 w-full text-base sm:text-sm font-medium text-foreground";
+  const breakdownRowBase = "flex items-center justify-between";
+  const breakdownLabelEven = "text-[rgba(47,210,255,0.82)]";
 
   const animatedHours = useCountUp(
     hoursLeft,
@@ -806,36 +808,36 @@ export default function Home() {
                 </p>
               </div>
               <div className="mt-6 space-y-3 text-sm text-foreground">
-                <div className="flex items-center justify-between">
+                <div className={breakdownRowBase}>
                   <span className="text-muted">当前体力</span>
                   <span className="font-semibold">{animatedCurrent}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted">自然恢复体力</span>
+                <div className={breakdownRowBase}>
+                  <span className={breakdownLabelEven}>自然恢复体力</span>
                   <span className="font-semibold">{animatedRecovery}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className={breakdownRowBase}>
                   <span className="text-muted">活跃度奖励</span>
                   <span className="font-semibold">{animatedActivity}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted">小程序签到</span>
+                <div className={breakdownRowBase}>
+                  <span className={breakdownLabelEven}>小程序签到</span>
                   <span className="font-semibold">{animatedMiniProgram}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className={breakdownRowBase}>
                   <span className="text-muted">好友赠送</span>
                   <span className="font-semibold">{animatedFriendGift}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted">购买100</span>
+                <div className={breakdownRowBase}>
+                  <span className={breakdownLabelEven}>购买100</span>
                   <span className="font-semibold">{animatedBuy100}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className={breakdownRowBase}>
                   <span className="text-muted">购买50</span>
                   <span className="font-semibold">{animatedBuy50}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted">其他体力</span>
+                <div className={breakdownRowBase}>
+                  <span className={breakdownLabelEven}>其他体力</span>
                   <span className="font-semibold">{animatedOther}</span>
                 </div>
               </div>
