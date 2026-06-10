@@ -418,10 +418,10 @@ export default function Home() {
   const alertActive = showOverflowCard;
 
   const overflowSummary = alertActive
-    ? `已满体力，继续自然恢复将冗余 ${overflow} 点体力。`
+    ? `已满，将溢出 ${overflow} 点。`
     : overflowActive
-      ? `预计在 ${fullTimeSummaryLabel} 满体力，新游戏日前将冗余 ${overflow} 点自然恢复体力。`
-      : "新游戏日前不会溢出。";
+      ? `${fullTimeSummaryLabel} 满，溢出 ${overflow} 点。`
+      : "今日不溢出。";
   const summaryTone = alertActive
     ? "border-accent-red/50 bg-[rgba(255,59,59,0.12)]"
     : "border-accent-green/40 bg-[rgba(61,255,204,0.12)]";
@@ -569,7 +569,7 @@ export default function Home() {
             体力助手
           </h1>
           <p className="text-base text-muted sm:text-lg">
-            新游戏日体力情况，当日体力总值上限。
+            算体力、看溢出、估算今日上限。
           </p>
         </header>
 
@@ -580,10 +580,10 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <span className="indicator-dot" />
                   <h2 className="text-base font-semibold text-foreground">
-                    自然时间恢复体力
+                    自然恢复
                   </h2>
                 </div>
-                <span className="panel-chip">每5分钟恢复1点体力</span>
+                <span className="panel-chip">5分钟+1</span>
               </div>
               <div className="mt-6 grid gap-4 sm:grid-cols-3">
                 <label className="text-sm font-medium text-foreground">
@@ -623,7 +623,7 @@ export default function Home() {
                 </label>
               </div>
               <div className="mt-5 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-xs text-muted shadow-[inset_0_0_0_1px_rgba(7,18,37,0.85)]">
-                每日新游戏日重置，体力满时停止自然恢复；自然恢复上限：{DAILY_RECOVERY_MAX}/日。
+                每日重置；满体力后不再自然恢复。上限：{DAILY_RECOVERY_MAX}/日。
               </div>
             </div>
 
@@ -632,10 +632,10 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <span className="indicator-dot" />
                   <h2 className="text-base font-semibold text-foreground">
-                    每日体力来源
+                    额外来源
                   </h2>
                 </div>
-                <span className="panel-chip">自主计算</span>
+                <span className="panel-chip">可选</span>
               </div>
               <div className="mt-6 grid gap-4">
                 <label className="flex items-center justify-between gap-3 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-sm font-medium text-foreground shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
@@ -669,7 +669,7 @@ export default function Home() {
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-medium text-foreground">
-                    体力购买（每次+100）
+                    购买 +100
                     <input
                       className={inputBase}
                       type="number"
@@ -682,7 +682,7 @@ export default function Home() {
                     />
                   </label>
                   <label className="text-sm font-medium text-foreground">
-                    体力购买（每次+50）
+                    购买 +50
                     <input
                       className={inputBase}
                       type="number"
@@ -696,7 +696,7 @@ export default function Home() {
                   </label>
                 </div>
                 <label className="text-sm font-medium text-foreground">
-                  其他体力（可为负值，用于无尽/活动损耗）
+                  其他调整
                   <input
                     className={inputBase}
                     type="number"
@@ -717,7 +717,7 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <span className="indicator-dot" />
                   <h2 className="text-base font-semibold text-foreground">
-                    新游戏日溢出情况
+                    溢出预警
                   </h2>
                 </div>
                 <span className="panel-chip">实时</span>
@@ -734,7 +734,7 @@ export default function Home() {
                 </div>
                 <div className="stat-card">
                   <p className="text-xs text-muted">
-                    剩余自然恢复体力
+                    剩余恢复
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-foreground font-[var(--font-display)]">
                     +{animatedRemainingRecovery}
@@ -742,7 +742,7 @@ export default function Home() {
                 </div>
                 <div className="stat-card">
                   <p className="text-xs text-muted">
-                    预计新游戏日体力
+                    新游戏日前
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-foreground font-[var(--font-display)]">
                     {animatedExpected} / {animatedMax}
@@ -792,17 +792,17 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <span className="indicator-dot" />
                   <h2 className="text-base font-semibold text-foreground">
-                    当日体力理论MAX值
+                    今日理论 MAX
                   </h2>
                 </div>
-                <span className="panel-chip">从现在到新游戏日</span>
+                <span className="panel-chip">含额外来源</span>
               </div>
               <div className="gold-card mt-6 rounded-2xl p-5">
                 <p className="text-4xl font-semibold font-[var(--font-display)]">
                   {animatedDailyTotal}
                 </p>
                 <p className="mt-1 text-sm text-[#1c1200]/70">
-                  总值：当前体力+自然恢复体力（无视溢出情况）+ 每日体力来源，合计为理论MAX值。
+                  当前体力 + 自然恢复 + 额外来源，未扣溢出。
                 </p>
               </div>
               <div className="mt-6 space-y-3 text-sm text-foreground">
