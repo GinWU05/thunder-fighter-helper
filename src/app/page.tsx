@@ -583,7 +583,7 @@ export default function Home() {
             体力助手
           </h1>
           <p className="text-base text-muted sm:text-lg">
-            算体力、看溢出、估算今日上限。
+            算体力、看溢出、回满倒推、估算今日上限。
           </p>
         </header>
 
