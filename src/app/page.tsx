@@ -383,6 +383,13 @@ export default function Home() {
   const safeMax = toPositiveInt(maxStamina);
   const expectedAtMidnight = safeCurrent + naturalRecovery;
   const overflow = Math.max(0, expectedAtMidnight - safeMax);
+  const fullRecoveryMinutes = safeMax * RECOVERY_INTERVAL_MINUTES;
+  const latestEmptyStartMinutes = Math.max(
+    0,
+    24 * 60 - fullRecoveryMinutes,
+  );
+  const latestEmptyStartTime = formatMinutesToTime(latestEmptyStartMinutes);
+  const maxStaminaToKeepNow = Math.max(0, safeMax - naturalRecovery);
   const activityTotal = activityReward ? 100 : 0;
   const miniProgramTotal = miniProgramSignIn ? 30 : 0;
   const friendGiftTotal = friendGift ? FRIEND_GIFT_TOTAL : 0;
@@ -506,6 +513,11 @@ export default function Home() {
   );
   const animatedOverflow = useCountUp(
     overflow,
+    700,
+    !prefersReducedMotion,
+  );
+  const animatedMaxStaminaToKeep = useCountUp(
+    maxStaminaToKeepNow,
     700,
     !prefersReducedMotion,
   );
@@ -786,6 +798,33 @@ export default function Home() {
                 <span className={summaryTextTone} data-text={overflowSummary}>
                   {overflowSummary}
                 </span>
+              </div>
+              <div className="mt-4 rounded-2xl border border-accent-blue/25 bg-surface-strong/75 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-muted">回满倒推</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      最晚清空时间
+                    </p>
+                  </div>
+                  <p className="text-3xl font-semibold text-accent-blue font-[var(--font-display)]">
+                    {latestEmptyStartTime}
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-accent-blue/20 bg-surface/70 px-3 py-2">
+                    <p className="text-[11px] text-muted">回满耗时</p>
+                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)]">
+                      {fullRecoveryMinutes} 分钟
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-accent-blue/20 bg-surface/70 px-3 py-2">
+                    <p className="text-[11px] text-muted">当前保留</p>
+                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)]">
+                      ≤ {animatedMaxStaminaToKeep}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
