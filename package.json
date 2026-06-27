@@ -7,8 +7,7 @@
     "dev:turbo": "next dev --turbo",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test:reminders": "node --experimental-strip-types scripts/reminder-core-test.mjs"
+    "lint": "eslint"
   },
   "dependencies": {
     "next": "16.1.1",
