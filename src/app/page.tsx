@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_STAMINA_STATE,
   STAMINA_STORAGE_KEY,
@@ -11,6 +11,19 @@ import {
 const RECOVERY_INTERVAL_MINUTES = 5;
 const DAILY_RECOVERY_MAX = Math.floor((24 * 60) / RECOVERY_INTERVAL_MINUTES);
 const FRIEND_GIFT_TOTAL = 30 * 5;
+const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
+
+type ReminderOwner = {
+  username: string;
+  ownerToken: string;
+};
+
+type PendingReminder = {
+  id: string;
+  message: string;
+  dueAtIso: string;
+  retryCount: number;
+};
 
 const formatTime = (date: Date) => {
   const hours = String(date.getHours()).padStart(2, "0");
@@ -97,6 +110,54 @@ const parseStoredState = (raw: string | null): StoredStaminaState | null => {
   } catch {
     return null;
   }
+};
+
+const parseReminderOwner = (raw: string | null): ReminderOwner | null => {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ReminderOwner;
+    if (
+      !parsed ||
+      typeof parsed.username !== "string" ||
+      typeof parsed.ownerToken !== "string"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const apiJson = async <T,>(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<T> => {
+  const response = await fetch(input, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const payload = (await response.json().catch(() => ({}))) as
+    | T
+    | { error?: string };
+
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === "object" && "error" in payload
+        ? payload.error
+        : null;
+    throw new Error(
+      typeof errorMessage === "string" ? errorMessage : "request_failed",
+    );
+  }
+
+  return payload as T;
 };
 
 const getStoredNumber = (value: unknown, fallback: number) => {
@@ -256,6 +317,17 @@ export default function Home() {
   const [otherStamina, setOtherStamina] = useState(
     DEFAULT_STAMINA_STATE.otherStamina,
   );
+  const [reminderOwner, setReminderOwner] = useState<ReminderOwner | null>(
+    null,
+  );
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [reminderMessage, setReminderMessage] = useState("体力快满了");
+  const [reminderMinutes, setReminderMinutes] = useState(1);
+  const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>(
+    [],
+  );
+  const [reminderStatus, setReminderStatus] = useState("");
+  const [reminderBusy, setReminderBusy] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const [storageDateKey, setStorageDateKey] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
@@ -370,6 +442,163 @@ export default function Home() {
     storageDateKey,
     storageReady,
   ]);
+
+  const loadPendingReminders = useCallback(async (owner: ReminderOwner) => {
+    const params = new URLSearchParams({
+      username: owner.username,
+      ownerToken: owner.ownerToken,
+    });
+    const payload = await apiJson<{ reminders: PendingReminder[] }>(
+      `/api/reminders?${params.toString()}`,
+    );
+    setPendingReminders(payload.reminders);
+  }, []);
+
+  useEffect(() => {
+    const owner = parseReminderOwner(
+      localStorage.getItem(REMINDER_OWNER_STORAGE_KEY),
+    );
+    if (!owner) {
+      return;
+    }
+
+    setReminderOwner(owner);
+    setRegisterUsername(owner.username);
+    loadPendingReminders(owner).catch((error) => {
+      setReminderStatus(
+        error instanceof Error ? error.message : "加载提醒失败",
+      );
+    });
+  }, [loadPendingReminders]);
+
+  const handleRegisterReminderUser = async () => {
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      const payload = await apiJson<ReminderOwner>("/api/reminders/register", {
+        method: "POST",
+        body: JSON.stringify({ username: registerUsername }),
+      });
+      localStorage.setItem(
+        REMINDER_OWNER_STORAGE_KEY,
+        JSON.stringify(payload),
+      );
+      setReminderOwner(payload);
+      setRegisterUsername(payload.username);
+      setReminderStatus("注册成功");
+      await loadPendingReminders(payload);
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "注册失败",
+      );
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleUnregisterReminderUser = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      await apiJson("/api/reminders/user", {
+        method: "DELETE",
+        body: JSON.stringify(reminderOwner),
+      });
+      localStorage.removeItem(REMINDER_OWNER_STORAGE_KEY);
+      setReminderOwner(null);
+      setPendingReminders([]);
+      setReminderStatus("已解绑");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "解绑失败",
+      );
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleTestBark = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      await apiJson("/api/reminders/test-bark", {
+        method: "POST",
+        body: JSON.stringify(reminderOwner),
+      });
+      setReminderStatus("测试通知已发送");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "测试通知失败",
+      );
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleCreateReminder = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    const dueAt = new Date(
+      Date.now() + Math.max(1, reminderMinutes) * 60 * 1000,
+    );
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      await apiJson("/api/reminders", {
+        method: "POST",
+        body: JSON.stringify({
+          ...reminderOwner,
+          message: reminderMessage,
+          dueAtIso: dueAt.toISOString(),
+        }),
+      });
+      setReminderStatus("提醒已创建");
+      await loadPendingReminders(reminderOwner);
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "创建提醒失败",
+      );
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleCancelReminder = async (reminderId: string) => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      await apiJson("/api/reminders/cancel", {
+        method: "DELETE",
+        body: JSON.stringify({ ...reminderOwner, reminderId }),
+      });
+      setReminderStatus("提醒已取消");
+      await loadPendingReminders(reminderOwner);
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "取消提醒失败",
+      );
+    } finally {
+      setReminderBusy(false);
+    }
+  };
 
   const minutesSinceMidnight = useMemo(
     () => parseMinutes(currentTime),
@@ -723,6 +952,154 @@ export default function Home() {
                 </label>
               </div>
             </div>
+
+            <section className={cardBase} style={{ animationDelay: "420ms" }}>
+              <div className="panel-header panel-header-glow">
+                <div className="flex items-center gap-3">
+                  <span className="indicator-dot" />
+                  <h2 className="text-base font-semibold text-foreground">
+                    服务端提醒
+                  </h2>
+                </div>
+                <span className="panel-chip">
+                  {reminderOwner ? reminderOwner.username : "未绑定"}
+                </span>
+              </div>
+
+              <div className="mt-6 grid gap-6">
+                <div className="space-y-4">
+                  <label className="text-sm font-medium text-foreground">
+                    Username
+                    <input
+                      className={inputBase}
+                      type="text"
+                      value={registerUsername}
+                      disabled={Boolean(reminderOwner) || reminderBusy}
+                      placeholder="3-32位字母数字_-"
+                      onChange={(event) =>
+                        setRegisterUsername(event.target.value)
+                      }
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      className="rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={Boolean(reminderOwner) || reminderBusy}
+                      onClick={handleRegisterReminderUser}
+                    >
+                      注册
+                    </button>
+                    <button
+                      className="rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={!reminderOwner || reminderBusy}
+                      onClick={handleTestBark}
+                    >
+                      测试 Bark
+                    </button>
+                    <button
+                      className="rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={!reminderOwner || reminderBusy}
+                      onClick={handleUnregisterReminderUser}
+                    >
+                      解绑
+                    </button>
+                  </div>
+                  <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-xs text-muted shadow-[inset_0_0_0_1px_rgba(7,18,37,0.85)]">
+                    ownerToken 仅保存在本机 localStorage；KV 只保存 hash。
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+                    <label className="text-sm font-medium text-foreground">
+                      提醒内容
+                      <input
+                        className={inputBase}
+                        type="text"
+                        value={reminderMessage}
+                        disabled={!reminderOwner || reminderBusy}
+                        onChange={(event) =>
+                          setReminderMessage(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-foreground">
+                      几分钟后
+                      <input
+                        className={inputBase}
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={reminderMinutes}
+                        disabled={!reminderOwner || reminderBusy}
+                        onChange={(event) =>
+                          setReminderMinutes(Number(event.target.value))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      className="rounded-2xl border border-accent-gold/45 bg-accent-gold/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-gold/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={!reminderOwner || reminderBusy}
+                      onClick={handleCreateReminder}
+                    >
+                      创建提醒
+                    </button>
+                    <button
+                      className="rounded-2xl border border-accent-blue/30 bg-surface-strong/75 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={!reminderOwner || reminderBusy}
+                      onClick={() =>
+                        reminderOwner && loadPendingReminders(reminderOwner)
+                      }
+                    >
+                      刷新列表
+                    </button>
+                    {reminderStatus ? (
+                      <span className="text-sm text-muted">{reminderStatus}</span>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-3">
+                    {pendingReminders.length === 0 ? (
+                      <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-4 text-sm text-muted">
+                        暂无 pending reminder
+                      </div>
+                    ) : (
+                      pendingReminders.map((reminder) => (
+                        <div
+                          className="flex flex-col gap-3 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-sm shadow-[inset_0_0_0_1px_rgba(7,18,37,0.85)] sm:flex-row sm:items-center sm:justify-between"
+                          key={reminder.id}
+                        >
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {reminder.message}
+                            </p>
+                            <p className="mt-1 text-xs text-muted">
+                              {new Date(reminder.dueAtIso).toLocaleString()} · retry{" "}
+                              {reminder.retryCount}
+                            </p>
+                          </div>
+                          <button
+                            className="rounded-xl border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            type="button"
+                            disabled={reminderBusy}
+                            onClick={() => handleCancelReminder(reminder.id)}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
           <div className="space-y-6">
@@ -883,6 +1260,7 @@ export default function Home() {
             </div>
           </div>
         </section>
+
       </main>
     </div>
   );
