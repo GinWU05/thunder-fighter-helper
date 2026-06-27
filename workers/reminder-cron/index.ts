@@ -10,13 +10,12 @@ import {
 
 type Env = {
   REMINDERS_KV: ReminderKv;
-  BARK_ENDPOINT?: string;
 };
 
 const MAX_RETRY_COUNT = 3;
 
-const notifyBark = async (endpoint: string, reminder: ReminderRecord) => {
-  const response = await fetch(buildBarkUrl(endpoint, reminder));
+const notifyBark = async (reminder: ReminderRecord) => {
+  const response = await fetch(buildBarkUrl(reminder));
   if (!response.ok) {
     throw new Error(`Bark ${response.status}`);
   }
@@ -26,10 +25,6 @@ export const processDueReminders = async (
   env: Env,
   now = new Date(),
 ) => {
-  if (!env.BARK_ENDPOINT) {
-    throw new Error("missing BARK_ENDPOINT");
-  }
-
   const keys = await listAllKeys(env.REMINDERS_KV, REMINDER_PREFIX);
   const nowIso = now.toISOString();
   let sent = 0;
@@ -45,7 +40,7 @@ export const processDueReminders = async (
     }
 
     try {
-      await notifyBark(env.BARK_ENDPOINT, reminder);
+      await notifyBark(reminder);
       await env.REMINDERS_KV.delete(key.name);
       sent += 1;
     } catch (error) {

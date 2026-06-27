@@ -12,6 +12,7 @@ const RECOVERY_INTERVAL_MINUTES = 5;
 const DAILY_RECOVERY_MAX = Math.floor((24 * 60) / RECOVERY_INTERVAL_MINUTES);
 const FRIEND_GIFT_TOTAL = 30 * 5;
 const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
+const REMINDER_SETTINGS_STORAGE_KEY = "thunder-fighter-reminder-settings";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 type ReminderOwner = {
@@ -21,9 +22,15 @@ type ReminderOwner = {
 
 type PendingReminder = {
   id: string;
+  title: string;
   message: string;
   dueAtIso: string;
   retryCount: number;
+};
+
+type ReminderSettings = {
+  barkUrl: string;
+  title: string;
 };
 
 const formatTime = (date: Date) => {
@@ -124,6 +131,26 @@ const parseReminderOwner = (raw: string | null): ReminderOwner | null => {
       !parsed ||
       typeof parsed.username !== "string" ||
       typeof parsed.ownerToken !== "string"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const parseReminderSettings = (raw: string | null): ReminderSettings | null => {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ReminderSettings;
+    if (
+      !parsed ||
+      typeof parsed.barkUrl !== "string" ||
+      typeof parsed.title !== "string"
     ) {
       return null;
     }
@@ -326,6 +353,8 @@ export default function Home() {
     null,
   );
   const [registerUsername, setRegisterUsername] = useState("");
+  const [reminderBarkUrl, setReminderBarkUrl] = useState("");
+  const [reminderTitle, setReminderTitle] = useState("雷霆战机提醒");
   const [reminderMessage, setReminderMessage] = useState("体力快满了");
   const [reminderMinutes, setReminderMinutes] = useState(1);
   const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>(
@@ -333,6 +362,7 @@ export default function Home() {
   );
   const [reminderStatus, setReminderStatus] = useState("");
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderSettingsReady, setReminderSettingsReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const [storageDateKey, setStorageDateKey] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
@@ -463,6 +493,15 @@ export default function Home() {
     const owner = parseReminderOwner(
       localStorage.getItem(REMINDER_OWNER_STORAGE_KEY),
     );
+    const settings = parseReminderSettings(
+      localStorage.getItem(REMINDER_SETTINGS_STORAGE_KEY),
+    );
+    if (settings) {
+      setReminderBarkUrl(settings.barkUrl);
+      setReminderTitle(settings.title);
+    }
+    setReminderSettingsReady(true);
+
     if (!owner) {
       return;
     }
@@ -475,6 +514,20 @@ export default function Home() {
       );
     });
   }, [loadPendingReminders]);
+
+  useEffect(() => {
+    if (!reminderSettingsReady) {
+      return;
+    }
+
+    localStorage.setItem(
+      REMINDER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        barkUrl: reminderBarkUrl,
+        title: reminderTitle,
+      }),
+    );
+  }, [reminderBarkUrl, reminderSettingsReady, reminderTitle]);
 
   const handleRegisterReminderUser = async () => {
     setReminderBusy(true);
@@ -538,7 +591,11 @@ export default function Home() {
     try {
       await apiJson("/api/reminders/test-bark", {
         method: "POST",
-        body: JSON.stringify(reminderOwner),
+        body: JSON.stringify({
+          ...reminderOwner,
+          barkUrl: reminderBarkUrl,
+          title: reminderTitle,
+        }),
       });
       setReminderStatus("测试通知已发送");
     } catch (error) {
@@ -566,6 +623,8 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({
           ...reminderOwner,
+          barkUrl: reminderBarkUrl,
+          title: reminderTitle,
           message: reminderMessage,
           dueAtIso: dueAt.toISOString(),
         }),
@@ -979,7 +1038,7 @@ export default function Home() {
                       className="text-sm font-medium text-foreground"
                       htmlFor="reminder-username"
                     >
-                      Username
+                      用户名
                     </label>
                     <input
                       id="reminder-username"
@@ -990,6 +1049,43 @@ export default function Home() {
                       placeholder="3-32位字母数字_-"
                       onChange={(event) =>
                         setRegisterUsername(event.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="text-sm font-medium text-foreground"
+                      htmlFor="reminder-bark-url"
+                    >
+                      Bark URL
+                    </label>
+                    <input
+                      id="reminder-bark-url"
+                      className={inputBase}
+                      type="url"
+                      value={reminderBarkUrl}
+                      placeholder="https://api.day.app/YOUR_KEY/"
+                      disabled={reminderBusy}
+                      onChange={(event) =>
+                        setReminderBarkUrl(event.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="text-sm font-medium text-foreground"
+                      htmlFor="reminder-title"
+                    >
+                      提醒标题
+                    </label>
+                    <input
+                      id="reminder-title"
+                      className={inputBase}
+                      type="text"
+                      value={reminderTitle}
+                      disabled={reminderBusy}
+                      onChange={(event) =>
+                        setReminderTitle(event.target.value)
                       }
                     />
                   </div>
@@ -1018,9 +1114,6 @@ export default function Home() {
                     >
                       解绑
                     </button>
-                  </div>
-                  <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-xs text-muted shadow-[inset_0_0_0_1px_rgba(7,18,37,0.85)]">
-                    ownerToken 仅保存在本机 localStorage；KV 只保存 hash。
                   </div>
                 </div>
 

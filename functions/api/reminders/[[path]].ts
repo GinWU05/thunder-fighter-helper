@@ -7,6 +7,7 @@ import {
   isValidUsername,
   jsonResponse,
   listPendingReminders,
+  normalizeBarkUrl,
   normalizeDueAtIso,
   normalizeUsername,
   profileKey,
@@ -14,6 +15,7 @@ import {
   reminderKey,
   requireProfile,
   sanitizeMessage,
+  sanitizeTitle,
   usernameKey,
   type ReminderKv,
   type ReminderProfile,
@@ -22,7 +24,6 @@ import {
 
 type Env = {
   REMINDERS_KV: ReminderKv;
-  BARK_ENDPOINT?: string;
   REMINDER_SECRET?: string;
 };
 
@@ -30,6 +31,8 @@ type RequestBody = {
   username?: unknown;
   ownerToken?: unknown;
   dueAtIso?: unknown;
+  barkUrl?: unknown;
+  title?: unknown;
   message?: unknown;
   reminderId?: unknown;
 };
@@ -115,9 +118,6 @@ const testBark = async (request: Request, env: Env) => {
   if (!secret) {
     return errorResponse("missing_secret", 500);
   }
-  if (!env.BARK_ENDPOINT) {
-    return errorResponse("missing_bark_endpoint", 500);
-  }
 
   const body = await readJsonBody<RequestBody>(request);
   const owner = await requireProfile(
@@ -130,16 +130,23 @@ const testBark = async (request: Request, env: Env) => {
     return errorResponse(owner.error ?? "request_failed", owner.status ?? 400);
   }
 
+  const barkUrl = normalizeBarkUrl(body.barkUrl);
+  if (!barkUrl) {
+    return errorResponse("invalid_bark_url");
+  }
+
   const reminder: ReminderRecord = {
     id: "test",
     userId: owner.profile.userId,
     username: owner.profile.username,
+    barkUrl,
+    title: sanitizeTitle(body.title) || "雷霆战机提醒",
     message: "Bark 测试通知",
     dueAtIso: new Date().toISOString(),
     retryCount: 0,
     createdAtIso: new Date().toISOString(),
   };
-  const response = await fetch(buildBarkUrl(env.BARK_ENDPOINT, reminder));
+  const response = await fetch(buildBarkUrl(reminder));
 
   if (!response.ok) {
     return errorResponse("bark_failed", 502);
@@ -171,10 +178,18 @@ const createReminder = async (request: Request, env: Env) => {
   }
 
   const message = sanitizeMessage(body.message) || "体力提醒";
+  const title = sanitizeTitle(body.title) || "雷霆战机提醒";
+  const barkUrl = normalizeBarkUrl(body.barkUrl);
+  if (!barkUrl) {
+    return errorResponse("invalid_bark_url");
+  }
+
   const reminder: ReminderRecord = {
     id: crypto.randomUUID(),
     userId: owner.profile.userId,
     username: owner.profile.username,
+    barkUrl,
+    title,
     message,
     dueAtIso,
     retryCount: 0,

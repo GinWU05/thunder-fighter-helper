@@ -9,6 +9,8 @@ export type ReminderRecord = {
   id: string;
   userId: string;
   username: string;
+  barkUrl: string;
+  title: string;
   message: string;
   dueAtIso: string;
   retryCount: number;
@@ -37,6 +39,7 @@ export const REMINDER_PREFIX = "reminder:";
 export const FAILED_PREFIX = "failed:";
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
+const MAX_TITLE_LENGTH = 60;
 const MAX_MESSAGE_LENGTH = 120;
 
 const textEncoder = new TextEncoder();
@@ -160,6 +163,29 @@ export const sanitizeMessage = (message: unknown) => {
   return message.trim().slice(0, MAX_MESSAGE_LENGTH);
 };
 
+export const sanitizeTitle = (title: unknown) => {
+  if (typeof title !== "string") {
+    return "";
+  }
+  return title.trim().slice(0, MAX_TITLE_LENGTH);
+};
+
+export const normalizeBarkUrl = (barkUrl: unknown) => {
+  if (typeof barkUrl !== "string") {
+    return null;
+  }
+
+  try {
+    const url = new URL(barkUrl.trim());
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
 export const normalizeDueAtIso = (dueAtIso: unknown, now = new Date()) => {
   if (typeof dueAtIso !== "string") {
     return null;
@@ -211,9 +237,10 @@ export const listPendingReminders = async (
   return reminders;
 };
 
-export const buildBarkUrl = (endpoint: string, reminder: ReminderRecord) => {
-  const url = new URL(endpoint);
+export const buildBarkUrl = (reminder: ReminderRecord) => {
+  const url = new URL(reminder.barkUrl);
   const path = url.pathname.replace(/\/$/, "");
-  url.pathname = `${path}/${encodeURIComponent("雷霆战机提醒")}/${encodeURIComponent(reminder.message)}`;
+  url.pathname = `${path}/${encodeURIComponent(reminder.title)}/${encodeURIComponent(reminder.message)}`;
+  url.searchParams.set("group", "雷霆战机助手");
   return url.toString();
 };
