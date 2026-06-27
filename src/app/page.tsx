@@ -12,6 +12,7 @@ const RECOVERY_INTERVAL_MINUTES = 5;
 const DAILY_RECOVERY_MAX = Math.floor((24 * 60) / RECOVERY_INTERVAL_MINUTES);
 const FRIEND_GIFT_TOTAL = 30 * 5;
 const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 type ReminderOwner = {
   username: string;
@@ -136,7 +137,11 @@ const apiJson = async <T,>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> => {
-  const response = await fetch(input, {
+  const requestInput =
+    typeof input === "string" && input.startsWith("/")
+      ? `${API_BASE_URL}${input}`
+      : input;
+  const response = await fetch(requestInput, {
     ...init,
     headers: {
       "content-type": "application/json",
