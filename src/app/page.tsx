@@ -707,6 +707,7 @@ export default function Home() {
     "panel p-6 motion-safe:animate-[fade-up_0.7s_ease-out]";
   const inputBase =
     "input-field mt-2 w-full text-base sm:text-sm font-medium text-foreground";
+  const reminderButtonGroupBase = "flex flex-wrap items-center gap-3";
   const breakdownRowBase = "flex items-center justify-between";
   const breakdownLabelEven = "text-[rgba(47,210,255,0.82)]";
 
@@ -968,9 +969,15 @@ export default function Home() {
 
               <div className="mt-6 grid gap-6">
                 <div className="space-y-4">
-                  <label className="text-sm font-medium text-foreground">
-                    Username
+                  <div>
+                    <label
+                      className="text-sm font-medium text-foreground"
+                      htmlFor="reminder-username"
+                    >
+                      Username
+                    </label>
                     <input
+                      id="reminder-username"
                       className={inputBase}
                       type="text"
                       value={registerUsername}
@@ -980,8 +987,8 @@ export default function Home() {
                         setRegisterUsername(event.target.value)
                       }
                     />
-                  </label>
-                  <div className="flex flex-wrap gap-3">
+                  </div>
+                  <div className={reminderButtonGroupBase}>
                     <button
                       className="rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
@@ -1041,7 +1048,7 @@ export default function Home() {
                       />
                     </label>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className={reminderButtonGroupBase}>
                     <button
                       className="rounded-2xl border border-accent-gold/45 bg-accent-gold/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-gold/25 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
