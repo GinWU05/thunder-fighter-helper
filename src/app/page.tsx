@@ -75,6 +75,35 @@ const getDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const addDaysToDateKey = (dateKey: string, days: number) => {
+  const [year, month, day] = dateKey.split("-").map((part) => Number(part));
+  const date = new Date(year, month - 1, day + days);
+  return getDateKey(date);
+};
+
+const formatTimeWithSeconds = (value: string) =>
+  value.split(":").length === 2 ? `${value}:00` : value;
+
+const parseLocalDateTime = (dateValue: string, timeValue: string) => {
+  const [year, month, day] = dateValue.split("-").map((part) => Number(part));
+  const [hours, minutes, seconds = 0] = timeValue
+    .split(":")
+    .map((part) => Number(part));
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    !Number.isFinite(seconds)
+  ) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hours, minutes, seconds);
+};
+
 type StoredStaminaState = {
   dateKey: string;
   state: Partial<StaminaState>;
@@ -356,7 +385,8 @@ export default function Home() {
   const [reminderBarkUrl, setReminderBarkUrl] = useState("");
   const [reminderTitle, setReminderTitle] = useState("雷霆战机提醒");
   const [reminderMessage, setReminderMessage] = useState("体力快满了");
-  const [reminderMinutes, setReminderMinutes] = useState(1);
+  const [reminderDueDate, setReminderDueDate] = useState("");
+  const [reminderDueTime, setReminderDueTime] = useState("");
   const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>(
     [],
   );
@@ -613,9 +643,12 @@ export default function Home() {
       return;
     }
 
-    const dueAt = new Date(
-      Date.now() + Math.max(1, reminderMinutes) * 60 * 1000,
-    );
+    const dueAt = parseLocalDateTime(reminderDueDate, reminderDueTime);
+    if (!dueAt) {
+      setReminderStatus("提醒时间无效");
+      return;
+    }
+
     setReminderBusy(true);
     setReminderStatus("");
     try {
@@ -724,6 +757,12 @@ export default function Home() {
   const showOverflowCard = overflowActive && missingStamina === 0;
   const fullTimeSummaryLabel = `${fullTimeTime}${fullTimeDayOffset > 0 ? "（新游戏日）" : ""}`;
   const alertActive = showOverflowCard;
+
+  useEffect(() => {
+    const baseDateKey = storageDateKey ?? getDateKey(new Date());
+    setReminderDueDate(addDaysToDateKey(baseDateKey, fullTimeDayOffset));
+    setReminderDueTime(formatTimeWithSeconds(fullTimeTime));
+  }, [fullTimeDayOffset, fullTimeTime, storageDateKey]);
 
   const overflowSummary = alertActive
     ? `已满，将溢出 ${overflow} 点。`
@@ -1031,7 +1070,7 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <span className="indicator-dot" />
                   <h2 className="text-base font-semibold text-foreground">
-                    服务端提醒
+                    设置提醒
                   </h2>
                 </div>
                 <span className="panel-chip">
@@ -1126,7 +1165,7 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_280px]">
                     <label className="text-sm font-medium text-foreground">
                       提醒内容
                       <input
@@ -1139,20 +1178,38 @@ export default function Home() {
                         }
                       />
                     </label>
-                    <label className="text-sm font-medium text-foreground">
-                      几分钟后
-                      <input
-                        className={inputBase}
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={reminderMinutes}
-                        disabled={!reminderOwner || reminderBusy}
-                        onChange={(event) =>
-                          setReminderMinutes(Number(event.target.value))
-                        }
-                      />
-                    </label>
+                    <div className="text-sm font-medium text-foreground">
+                      提醒时间
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-muted">
+                          日期
+                          <input
+                            className={inputBase}
+                            type="date"
+                            value={reminderDueDate}
+                            disabled={!reminderOwner || reminderBusy}
+                            onChange={(event) =>
+                              setReminderDueDate(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="text-xs text-muted">
+                          时间
+                          <input
+                            className={inputBase}
+                            type="time"
+                            step={1}
+                            value={reminderDueTime}
+                            disabled={!reminderOwner || reminderBusy}
+                            onChange={(event) =>
+                              setReminderDueTime(
+                                formatTimeWithSeconds(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </div>
                   <div className={reminderButtonGroupBase}>
                     <button
@@ -1181,7 +1238,7 @@ export default function Home() {
                   <div className="space-y-3">
                     {pendingReminders.length === 0 ? (
                       <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-4 text-sm text-muted">
-                        暂无 pending reminder
+                        暂无提醒
                       </div>
                     ) : (
                       pendingReminders.map((reminder) => (
