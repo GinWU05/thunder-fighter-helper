@@ -1,0 +1,10 @@
+name = "thunder-fighter-helper-cron"
+main = "src/index.ts"
+compatibility_date = "2026-06-27"
+
+kv_namespaces = [
+  { binding = "REMINDERS_KV", id = "REPLACE_WITH_PRODUCTION_KV_ID" }
+]
+
+[triggers]
+crons = ["* * * * *"]
