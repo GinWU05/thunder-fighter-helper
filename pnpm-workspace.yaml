@@ -1,5 +1,6 @@
 packages:
   - .
+  - workers/reminder-cron
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
