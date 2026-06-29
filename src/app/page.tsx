@@ -619,18 +619,26 @@ export default function Home() {
     setReminderBusy(true);
     setReminderStatus("");
     try {
-      await apiJson("/api/reminders", {
-        method: "POST",
-        body: JSON.stringify({
-          ...reminderOwner,
-          barkUrl: reminderBarkUrl,
-          title: reminderTitle,
-          message: reminderMessage,
-          dueAtIso: dueAt.toISOString(),
-        }),
-      });
+      const payload = await apiJson<{ reminder: PendingReminder }>(
+        "/api/reminders",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...reminderOwner,
+            barkUrl: reminderBarkUrl,
+            title: reminderTitle,
+            message: reminderMessage,
+            dueAtIso: dueAt.toISOString(),
+          }),
+        },
+      );
       setReminderStatus("提醒已创建");
-      await loadPendingReminders(reminderOwner);
+      setPendingReminders((current) =>
+        [
+          ...current.filter((item) => item.id !== payload.reminder.id),
+          payload.reminder,
+        ].sort((a, b) => a.dueAtIso.localeCompare(b.dueAtIso)),
+      );
     } catch (error) {
       setReminderStatus(
         error instanceof Error ? error.message : "创建提醒失败",
