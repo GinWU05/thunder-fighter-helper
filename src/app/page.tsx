@@ -1165,7 +1165,7 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-[1fr_280px]">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_360px]">
                     <label className="text-sm font-medium text-foreground">
                       提醒内容
                       <input
@@ -1180,34 +1180,28 @@ export default function Home() {
                     </label>
                     <div className="text-sm font-medium text-foreground">
                       提醒时间
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs text-muted">
-                          日期
-                          <input
-                            className={inputBase}
-                            type="date"
-                            value={reminderDueDate}
-                            disabled={!reminderOwner || reminderBusy}
-                            onChange={(event) =>
-                              setReminderDueDate(event.target.value)
-                            }
-                          />
-                        </label>
-                        <label className="text-xs text-muted">
-                          时间
-                          <input
-                            className={inputBase}
-                            type="time"
-                            step={1}
-                            value={reminderDueTime}
-                            disabled={!reminderOwner || reminderBusy}
-                            onChange={(event) =>
-                              setReminderDueTime(
-                                formatTimeWithSeconds(event.target.value),
-                              )
-                            }
-                          />
-                        </label>
+                      <div className="datetime-combo">
+                        <input
+                          className={inputBase}
+                          type="date"
+                          value={reminderDueDate}
+                          disabled={!reminderOwner || reminderBusy}
+                          onChange={(event) =>
+                            setReminderDueDate(event.target.value)
+                          }
+                        />
+                        <input
+                          className={inputBase}
+                          type="time"
+                          step={1}
+                          value={reminderDueTime}
+                          disabled={!reminderOwner || reminderBusy}
+                          onChange={(event) =>
+                            setReminderDueTime(
+                              formatTimeWithSeconds(event.target.value),
+                            )
+                          }
+                        />
                       </div>
                     </div>
                   </div>
