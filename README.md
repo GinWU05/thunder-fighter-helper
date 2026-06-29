@@ -109,6 +109,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - 被以下组件使用：
   - Pages `thunder-fighter-helper`
   - Worker `thunder-fighter-helper-cron`
+- Key/value schema：见 [`docs/cloudflare-kv-schema.md`](docs/cloudflare-kv-schema.md)
 
 ### 主要 key
 
