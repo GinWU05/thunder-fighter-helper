@@ -14,6 +14,7 @@ import {
   readJsonBody,
   reminderKey,
   requireProfile,
+  scheduleReminder,
   sanitizeMessage,
   sanitizeTitle,
   usernameKey,
@@ -195,11 +196,14 @@ const createReminder = async (request: Request, env: Env) => {
     retryCount: 0,
     createdAtIso: new Date().toISOString(),
   };
-
-  await env.REMINDERS_KV.put(
-    reminderKey(reminder.dueAtIso, reminder.userId, reminder.id),
-    JSON.stringify(reminder),
+  const reminderKvKey = reminderKey(
+    reminder.dueAtIso,
+    reminder.userId,
+    reminder.id,
   );
+
+  await env.REMINDERS_KV.put(reminderKvKey, JSON.stringify(reminder));
+  await scheduleReminder(env.REMINDERS_KV, reminderKvKey, reminder.dueAtIso);
 
   return jsonResponse({ reminder }, { status: 201 });
 };

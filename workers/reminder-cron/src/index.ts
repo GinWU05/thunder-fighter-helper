@@ -10,43 +10,68 @@ type ReminderRecord = {
   username?: string;
   barkUrl?: string;
   title?: string;
-  body?: string;
   message?: string;
-  dueAt?: string;
   dueAtIso?: string;
-  status?: string;
   retryCount?: number;
   lastError?: string;
 };
 
+type SchedulerNextDue = {
+  minuteIso?: string;
+  bucketKey?: string;
+  minuteIsos?: string[];
+  updatedAtIso?: string;
+};
+
+type SchedulerDueBucket = {
+  minuteIso?: string;
+  reminderKeys?: string[];
+  updatedAtIso?: string;
+};
+
 const REMINDER_PREFIX = "reminder:";
 const FAILED_PREFIX = "failed:";
+const SCHEDULER_NEXT_DUE_KEY = "scheduler:nextDueAt";
+const SCHEDULER_DUE_PREFIX = "scheduler:due:";
 const MAX_RETRY_COUNT = 3;
-const LIST_LIMIT = 100;
+const MAX_BUCKETS_PER_RUN = 10;
 
-const parseReminder = (raw: string | null) => {
+const schedulerDueKey = (minuteIso: string) =>
+  `${SCHEDULER_DUE_PREFIX}${minuteIso}`;
+
+const uniqueSortedStrings = (items: string[]) =>
+  Array.from(
+    new Set(
+      items.filter((item) => typeof item === "string" && item.trim()),
+    ),
+  ).sort();
+
+const parseJson = <T>(raw: string | null) => {
   if (!raw) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(raw) as ReminderRecord;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    return parsed;
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
 };
 
+const parseReminder = (raw: string | null) => {
+  const parsed = parseJson<ReminderRecord>(raw);
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  return parsed;
+};
+
 const getDueAtMs = (reminder: ReminderRecord) => {
-  const dueAt = reminder.dueAtIso ?? reminder.dueAt;
-  if (typeof dueAt !== "string") {
+  if (typeof reminder.dueAtIso !== "string") {
     return null;
   }
 
-  const dueAtMs = Date.parse(dueAt);
+  const dueAtMs = Date.parse(reminder.dueAtIso);
   return Number.isFinite(dueAtMs) ? dueAtMs : null;
 };
 
@@ -71,7 +96,7 @@ const buildBarkUrl = (reminder: ReminderRecord) => {
   }
 
   const title = reminder.title || "雷霆战机提醒";
-  const body = reminder.body || reminder.message || "提醒时间到了";
+  const body = reminder.message || "提醒时间到了";
   const url = new URL(reminder.barkUrl);
   const path = url.pathname.replace(/\/$/, "");
 
@@ -121,57 +146,160 @@ const handleReminder = async (
     }
 
     await env.REMINDERS_KV.put(key, JSON.stringify(updated));
-    return "failed" as const;
+    return "retry" as const;
   }
 };
 
+const getSchedulerMinuteIsos = (state: SchedulerNextDue | null) =>
+  uniqueSortedStrings(Array.isArray(state?.minuteIsos) ? state.minuteIsos : []);
+
+const readSchedulerState = async (env: Env) => {
+  const state = parseJson<SchedulerNextDue>(
+    await env.REMINDERS_KV.get(SCHEDULER_NEXT_DUE_KEY),
+  );
+  const minuteIsos = getSchedulerMinuteIsos(state);
+  if (minuteIsos.length === 0) {
+    return null;
+  }
+
+  return minuteIsos;
+};
+
+const writeSchedulerState = async (
+  env: Env,
+  minuteIsos: string[],
+  updatedAtIso: string,
+) => {
+  const sortedMinuteIsos = uniqueSortedStrings(minuteIsos);
+  if (sortedMinuteIsos.length === 0) {
+    await env.REMINDERS_KV.delete(SCHEDULER_NEXT_DUE_KEY);
+    return;
+  }
+
+  const minuteIso = sortedMinuteIsos[0];
+  const state: SchedulerNextDue = {
+    minuteIso,
+    bucketKey: schedulerDueKey(minuteIso),
+    minuteIsos: sortedMinuteIsos,
+    updatedAtIso,
+  };
+  await env.REMINDERS_KV.put(SCHEDULER_NEXT_DUE_KEY, JSON.stringify(state));
+};
+
 export const processDueReminders = async (env: Env, now = Date.now()) => {
-  const result = await env.REMINDERS_KV.list({
-    prefix: REMINDER_PREFIX,
-    limit: LIST_LIMIT,
-  });
+  const nowIso = new Date(now).toISOString();
+  const schedulerMinuteIsos = await readSchedulerState(env);
   let sent = 0;
   let failed = 0;
   let skipped = 0;
 
-  for (const key of result.keys) {
+  if (!schedulerMinuteIsos) {
+    console.log("reminder cron sent=0 failed=0 skipped=0");
+    return { sent, failed, skipped };
+  }
+
+  const dueMinuteIsos = schedulerMinuteIsos
+    .filter((minuteIso) => {
+      const minuteMs = Date.parse(minuteIso);
+      return Number.isFinite(minuteMs) && minuteMs <= now;
+    })
+    .slice(0, MAX_BUCKETS_PER_RUN);
+
+  if (dueMinuteIsos.length === 0) {
+    console.log("reminder cron sent=0 failed=0 skipped=0");
+    return { sent, failed, skipped };
+  }
+
+  let nextMinuteIsos = schedulerMinuteIsos;
+
+  for (const minuteIso of dueMinuteIsos) {
+    const bucketKey = schedulerDueKey(minuteIso);
+
     try {
-      const reminder = parseReminder(await env.REMINDERS_KV.get(key.name));
-      if (!reminder) {
+      const bucket = parseJson<SchedulerDueBucket>(
+        await env.REMINDERS_KV.get(bucketKey),
+      );
+      const reminderKeys = uniqueSortedStrings(
+        Array.isArray(bucket?.reminderKeys) ? bucket.reminderKeys : [],
+      );
+
+      if (reminderKeys.length === 0) {
         skipped += 1;
+        await env.REMINDERS_KV.delete(bucketKey);
+        nextMinuteIsos = nextMinuteIsos.filter((item) => item !== minuteIso);
         continue;
       }
 
-      if (reminder.status && reminder.status !== "pending") {
-        skipped += 1;
-        continue;
+      const remainingReminderKeys: string[] = [];
+
+      for (const reminderKey of reminderKeys) {
+        try {
+          const reminder = parseReminder(
+            await env.REMINDERS_KV.get(reminderKey),
+          );
+          if (!reminder) {
+            skipped += 1;
+            continue;
+          }
+
+          const dueAtMs = getDueAtMs(reminder);
+          if (dueAtMs === null) {
+            skipped += 1;
+            continue;
+          }
+
+          if (dueAtMs > now) {
+            skipped += 1;
+            remainingReminderKeys.push(reminderKey);
+            continue;
+          }
+
+          if (!reminder.barkUrl) {
+            skipped += 1;
+            continue;
+          }
+
+          const status = await handleReminder(env, reminderKey, reminder);
+          if (status === "sent") {
+            sent += 1;
+          } else {
+            failed += 1;
+            if (status === "retry") {
+              remainingReminderKeys.push(reminderKey);
+            }
+          }
+        } catch (error) {
+          failed += 1;
+          remainingReminderKeys.push(reminderKey);
+          console.log(
+            `reminder cron item failed: ${reminderKey}`,
+            error instanceof Error ? error.message : error,
+          );
+        }
       }
 
-      const dueAtMs = getDueAtMs(reminder);
-      if (dueAtMs === null || dueAtMs > now) {
-        skipped += 1;
-        continue;
-      }
-
-      if (!reminder.barkUrl) {
-        skipped += 1;
-        continue;
-      }
-
-      const status = await handleReminder(env, key.name, reminder);
-      if (status === "sent") {
-        sent += 1;
+      const remainingKeys = uniqueSortedStrings(remainingReminderKeys);
+      if (remainingKeys.length > 0) {
+        const nextBucket: SchedulerDueBucket = {
+          minuteIso,
+          reminderKeys: remainingKeys,
+          updatedAtIso: nowIso,
+        };
+        await env.REMINDERS_KV.put(bucketKey, JSON.stringify(nextBucket));
       } else {
-        failed += 1;
+        await env.REMINDERS_KV.delete(bucketKey);
+        nextMinuteIsos = nextMinuteIsos.filter((item) => item !== minuteIso);
       }
     } catch (error) {
       failed += 1;
       console.log(
-        `reminder cron item failed: ${key.name}`,
+        `reminder cron bucket failed: ${bucketKey}`,
         error instanceof Error ? error.message : error,
       );
     }
   }
+
+  await writeSchedulerState(env, nextMinuteIsos, nowIso);
 
   console.log(`reminder cron sent=${sent} failed=${failed} skipped=${skipped}`);
   return { sent, failed, skipped };

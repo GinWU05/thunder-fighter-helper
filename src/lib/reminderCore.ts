@@ -18,6 +18,19 @@ export type ReminderRecord = {
   lastError?: string;
 };
 
+export type SchedulerNextDue = {
+  minuteIso: string;
+  bucketKey: string;
+  minuteIsos: string[];
+  updatedAtIso: string;
+};
+
+export type SchedulerDueBucket = {
+  minuteIso: string;
+  reminderKeys: string[];
+  updatedAtIso: string;
+};
+
 export type ReminderKv = {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
@@ -37,6 +50,8 @@ export const USERNAME_PREFIX = "username:";
 export const USER_PROFILE_PREFIX = "user:";
 export const REMINDER_PREFIX = "reminder:";
 export const FAILED_PREFIX = "failed:";
+export const SCHEDULER_NEXT_DUE_KEY = "scheduler:nextDueAt";
+export const SCHEDULER_DUE_PREFIX = "scheduler:due:";
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 const MAX_TITLE_LENGTH = 60;
@@ -91,6 +106,15 @@ export const failedReminderKey = (reminderKvKey: string) =>
     ? `${FAILED_PREFIX}${reminderKvKey.slice(REMINDER_PREFIX.length)}`
     : `${FAILED_PREFIX}${reminderKvKey}`;
 
+export const schedulerMinuteIso = (dueAtIso: string) => {
+  const dueAt = new Date(dueAtIso);
+  dueAt.setUTCSeconds(0, 0);
+  return dueAt.toISOString();
+};
+
+export const schedulerDueKey = (minuteIso: string) =>
+  `${SCHEDULER_DUE_PREFIX}${minuteIso}`;
+
 export const parseJson = <T>(raw: string | null): T | null => {
   if (!raw) {
     return null;
@@ -109,6 +133,70 @@ export const readJsonBody = async <T>(request: Request): Promise<T> => {
   } catch {
     return {} as T;
   }
+};
+
+const uniqueSortedStrings = (items: string[]) =>
+  Array.from(
+    new Set(
+      items.filter((item) => typeof item === "string" && item.trim()),
+    ),
+  ).sort();
+
+const getSchedulerMinuteIsos = (state: SchedulerNextDue | null) =>
+  uniqueSortedStrings(Array.isArray(state?.minuteIsos) ? state.minuteIsos : []);
+
+const writeSchedulerNextDue = async (
+  kv: ReminderKv,
+  minuteIsos: string[],
+  updatedAtIso: string,
+) => {
+  const sortedMinuteIsos = uniqueSortedStrings(minuteIsos);
+  if (sortedMinuteIsos.length === 0) {
+    await kv.delete(SCHEDULER_NEXT_DUE_KEY);
+    return;
+  }
+
+  const minuteIso = sortedMinuteIsos[0];
+  const state: SchedulerNextDue = {
+    minuteIso,
+    bucketKey: schedulerDueKey(minuteIso),
+    minuteIsos: sortedMinuteIsos,
+    updatedAtIso,
+  };
+  await kv.put(SCHEDULER_NEXT_DUE_KEY, JSON.stringify(state));
+};
+
+export const scheduleReminder = async (
+  kv: ReminderKv,
+  reminderKvKey: string,
+  dueAtIso: string,
+) => {
+  const minuteIso = schedulerMinuteIso(dueAtIso);
+  const bucketKey = schedulerDueKey(minuteIso);
+  const updatedAtIso = new Date().toISOString();
+  const existingBucket = parseJson<SchedulerDueBucket>(await kv.get(bucketKey));
+  const reminderKeys = uniqueSortedStrings([
+    ...(Array.isArray(existingBucket?.reminderKeys)
+      ? existingBucket.reminderKeys
+      : []),
+    reminderKvKey,
+  ]);
+  const bucket: SchedulerDueBucket = {
+    minuteIso,
+    reminderKeys,
+    updatedAtIso,
+  };
+
+  await kv.put(bucketKey, JSON.stringify(bucket));
+
+  const state = parseJson<SchedulerNextDue>(
+    await kv.get(SCHEDULER_NEXT_DUE_KEY),
+  );
+  await writeSchedulerNextDue(
+    kv,
+    [...getSchedulerMinuteIsos(state), minuteIso],
+    updatedAtIso,
+  );
 };
 
 export const jsonResponse = (body: unknown, init?: ResponseInit) =>
