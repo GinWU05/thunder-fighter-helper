@@ -18,47 +18,37 @@ pnpm dev
 
 打开 [http://localhost:3000](http://localhost:3000)。这个模式适合调 UI，但不会运行 `/functions/api/reminders/*`。
 
+### 环境变量
+
+不要提交真实 `.env`。需要区分环境时，使用 Next.js 兼容的 env 文件名：
+
+| 文件 | 用途 |
+|---|---|
+| `.env.development` | 本地开发默认值 |
+| `.env.development.local` | 本地开发私有值，不提交 |
+| `.env.production` | 生产构建默认值 |
+| `.env.production.local` | 生产构建私有值，不提交 |
+
 ### 日常完整开发：前端热更新 + Pages Functions + Cron Worker
 
-一条命令同时启动 Next.js、Pages Functions 和 Cron Worker：
+一条命令同时启动 Next.js、Pages Functions、本地 KV 和 Cron Worker：
 
 ```bash
 pnpm dev:all
 ```
 
-打开 [http://localhost:8788](http://localhost:8788)。这个地址由 Wrangler Pages dev 提供 `/functions`，并把前端请求代理到 Next dev，所以前端代码更新后不需要重新 `pnpm build`。
+打开 [http://localhost:8788](http://localhost:8788)。这个地址由 Wrangler Pages dev 提供 `/functions`，并启动 Next dev 作为前端代理，所以前端代码更新后不需要重新 `pnpm build`。
 
-手动触发 scheduled handler：
+Cron Worker 会监听 [http://localhost:8787](http://localhost:8787)。本地 Wrangler 不会自动按 `* * * * *` 触发 scheduled handler；需要手动访问：
 
 ```bash
 curl "http://localhost:8787/__scheduled"
 ```
 
-### 单独运行 Pages Functions 代理
-
-如果已经另开终端跑了 `pnpm dev`，可以单独启动 Pages Functions 代理，不启动 Cron Worker：
-
-```bash
-pnpm dev:pages
-```
-
-### 静态预览模式
-
-如果想模拟 Cloudflare Pages 生产部署的静态 `out/` 目录，先构建：
-
-```bash
-pnpm build
-```
-
-再跑静态 Pages dev：
-
-```bash
-pnpm dev:pages:static
-```
+真正“到点自动发送 Bark”发生在 Cloudflare 上部署后的 Cron Trigger。
 
 注意：
 
-- 本地 Cron 不会自动每分钟触发；需要用上面的 `curl` 手动触发。
 - Pages dev 和 Worker dev 都使用 `--persist-to=.wrangler/state`，目的是共用本地 KV 状态。
 - Bark URL 在页面里填写；测试 Bark 或到期 Cron 会真实请求该 Bark URL。
 

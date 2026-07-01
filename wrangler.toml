@@ -1,0 +1,7 @@
+name = "thunder-fighter-helper"
+compatibility_date = "2026-06-27"
+preview_urls = false
+
+kv_namespaces = [
+  { binding = "REMINDERS_KV", id = "cdbd755b3b2043f6b559ec805303a3f5" }
+]
