@@ -4,6 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "sh -c 'pids=\"\"; trap \"kill $pids 2>/dev/null\" INT TERM EXIT; pnpm dev & pids=\"$pids $!\"; pnpm dev:pages & pids=\"$pids $!\"; pnpm dev:cron & pids=\"$pids $!\"; wait'",
+    "dev:cron": "pnpm --filter thunder-fighter-helper-cron dev:scheduled",
+    "dev:pages": "workers/reminder-cron/node_modules/.bin/wrangler pages dev public --proxy=3000 --kv=REMINDERS_KV --binding=REMINDER_SECRET=local-dev-secret --persist-to=.wrangler/state --port=8788",
+    "dev:pages:static": "workers/reminder-cron/node_modules/.bin/wrangler pages dev out --kv=REMINDERS_KV --binding=REMINDER_SECRET=local-dev-secret --persist-to=.wrangler/state --port=8788",
     "dev:turbo": "next dev --turbo",
     "build": "next build",
     "start": "next start",

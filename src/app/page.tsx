@@ -392,6 +392,7 @@ export default function Home() {
   );
   const [reminderStatus, setReminderStatus] = useState("");
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderListLoading, setReminderListLoading] = useState(false);
   const [reminderSettingsReady, setReminderSettingsReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const [storageDateKey, setStorageDateKey] = useState<string | null>(null);
@@ -702,6 +703,26 @@ export default function Home() {
       );
     } finally {
       setReminderBusy(false);
+    }
+  };
+
+  const handleRefreshReminders = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    setReminderListLoading(true);
+    setReminderStatus("");
+    try {
+      await loadPendingReminders(reminderOwner);
+      setReminderStatus("列表已刷新");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "刷新列表失败",
+      );
+    } finally {
+      setReminderListLoading(false);
     }
   };
 
@@ -1215,14 +1236,21 @@ export default function Home() {
                       创建提醒
                     </button>
                     <button
-                      className="rounded-2xl border border-accent-blue/30 bg-surface-strong/75 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-accent-blue/30 bg-surface-strong/75 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/15 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
-                      disabled={!reminderOwner || reminderBusy}
-                      onClick={() =>
-                        reminderOwner && loadPendingReminders(reminderOwner)
+                      aria-busy={reminderListLoading}
+                      disabled={
+                        !reminderOwner || reminderBusy || reminderListLoading
                       }
+                      onClick={handleRefreshReminders}
                     >
-                      刷新列表
+                      {reminderListLoading ? (
+                        <span
+                          className="h-3 w-3 rounded-full border border-current border-r-transparent motion-safe:animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      {reminderListLoading ? "刷新中..." : "刷新列表"}
                     </button>
                     {reminderStatus ? (
                       <span className="text-sm text-muted">{reminderStatus}</span>
@@ -1230,7 +1258,11 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-3">
-                    {pendingReminders.length === 0 ? (
+                    {reminderListLoading && pendingReminders.length === 0 ? (
+                      <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-4 text-sm text-muted">
+                        加载提醒中...
+                      </div>
+                    ) : pendingReminders.length === 0 ? (
                       <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-4 text-sm text-muted">
                         暂无提醒
                       </div>

@@ -1,39 +1,66 @@
-Tjhis is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Thunder Fighter Helper
 
-## Getting Started
+## 本地运行
 
-First, run the development server:
+本项目是静态导出的 Next.js 前端 + Cloudflare Pages Functions + 独立 Cron Worker。只跑 `pnpm dev` 时不会运行 `/functions`，所以“设置提醒”的 API 需要用 Cloudflare Pages 本地模式。
+
+### 安装依赖
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 只看前端
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+打开 [http://localhost:3000](http://localhost:3000)。这个模式适合调 UI，但不会运行 `/functions/api/reminders/*`。
 
-## Learn More
+### 日常完整开发：前端热更新 + Pages Functions + Cron Worker
 
-To learn more about Next.js, take a look at the following resources:
+一条命令同时启动 Next.js、Pages Functions 和 Cron Worker：
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm dev:all
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+打开 [http://localhost:8788](http://localhost:8788)。这个地址由 Wrangler Pages dev 提供 `/functions`，并把前端请求代理到 Next dev，所以前端代码更新后不需要重新 `pnpm build`。
 
-## Deploy on Vercel
+手动触发 scheduled handler：
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+curl "http://localhost:8787/__scheduled"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 单独运行 Pages Functions 代理
+
+如果已经另开终端跑了 `pnpm dev`，可以单独启动 Pages Functions 代理，不启动 Cron Worker：
+
+```bash
+pnpm dev:pages
+```
+
+### 静态预览模式
+
+如果想模拟 Cloudflare Pages 生产部署的静态 `out/` 目录，先构建：
+
+```bash
+pnpm build
+```
+
+再跑静态 Pages dev：
+
+```bash
+pnpm dev:pages:static
+```
+
+注意：
+
+- 本地 Cron 不会自动每分钟触发；需要用上面的 `curl` 手动触发。
+- Pages dev 和 Worker dev 都使用 `--persist-to=.wrangler/state`，目的是共用本地 KV 状态。
+- Bark URL 在页面里填写；测试 Bark 或到期 Cron 会真实请求该 Bark URL。
 
 # Cloudflare 部署结构
 
@@ -83,7 +110,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - 部署路径：`/workers/reminder-cron`
 - 职责：
   - 运行 Cron Trigger
-  - 每分钟扫描到期 reminder
+  - 每分钟读取调度游标并处理到期 reminder
   - 调用 Bark URL
   - 成功后删除 reminder
   - 失败后增加 retryCount
@@ -119,6 +146,8 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 | `user:{userId}:profile` | 用户资料，包含 username、ownerTokenHash、createdAtIso |
 | `reminder:{dueAtIso}:{userId}:{uuid}` | 待触发提醒；value 内包含 barkUrl、title、message、retryCount |
 | `failed:{dueAtIso}:{userId}:{uuid}` | 失败提醒；由 Cron Worker 在 retryCount >= 3 后从 reminder key 移入 |
+| `scheduler:nextDueAt` | 调度游标；记录下一批到期分钟和待处理分钟队列 |
+| `scheduler:due:{minuteIso}` | 分钟 bucket；记录该分钟需要处理的 reminder key 列表 |
 
 核心层级：
 

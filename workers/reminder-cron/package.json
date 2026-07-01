@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "dev:scheduled": "wrangler dev --test-scheduled --persist-to=../../.wrangler/state --port=8787"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260627.1",
