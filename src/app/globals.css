@@ -80,6 +80,7 @@ body {
 }
 
 .panel-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -94,9 +95,23 @@ body {
   );
 }
 
-.panel-header-glow {
+.panel-header-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 18px rgba(47, 210, 255, 0.45),
+    0 0 28px rgba(178, 108, 255, 0.2);
+  opacity: 0.35;
+  pointer-events: none;
   animation: header-breathe 3.6s ease-in-out infinite;
   animation-delay: 0s;
+  will-change: opacity;
+}
+
+.panel-header > * {
+  position: relative;
+  z-index: 1;
 }
 
 .panel-chip {
@@ -338,7 +353,7 @@ input[type="time"].input-field {
 .gold-card::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 0 -30%;
   border-radius: inherit;
   padding: 1px;
   background: linear-gradient(
@@ -349,13 +364,13 @@ input[type="time"].input-field {
     rgba(255, 200, 74, 0.9) 65%,
     transparent 100%
   );
-  background-size: 220% 100%;
   animation: border-sweep 3.2s linear infinite;
   -webkit-mask: linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+  will-change: transform;
 }
 
 .shimmer-overlay {
@@ -368,14 +383,21 @@ input[type="time"].input-field {
   content: attr(data-text);
   position: absolute;
   inset: 0;
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.85) 45%,
+    rgba(255, 255, 255, 0.95) 50%,
+    transparent 58%
+  );
   background-size: 200% 100%;
-  background-position: 0% 50%;
   animation: shimmer-sweep 2.8s linear infinite;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  opacity: 0.75;
+  opacity: 0;
   pointer-events: none;
+  will-change: opacity;
 }
 
 .shimmer-gold {
@@ -462,10 +484,14 @@ input[type="time"].input-field {
 
 .starfield {
   position: absolute;
-  inset: 0;
+  top: -1200px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background-repeat: repeat;
   background-position: 0 0;
   animation: star-drift linear infinite;
+  will-change: transform;
 }
 
 .starfield-far {
@@ -629,41 +655,44 @@ input[type="time"].input-field {
 @keyframes header-breathe {
   0%,
   100% {
-    border-color: rgba(47, 210, 255, 0.3);
-    box-shadow: 0 0 10px rgba(47, 210, 255, 0.2),
-      0 0 0 rgba(47, 210, 255, 0);
+    opacity: 0.2;
   }
   50% {
-    border-color: rgba(47, 210, 255, 0.55);
-    box-shadow: 0 0 18px rgba(47, 210, 255, 0.45),
-      0 0 28px rgba(178, 108, 255, 0.2);
+    opacity: 1;
   }
 }
 
 @keyframes shimmer-sweep {
-  0% {
-    background-position: 120% 50%;
-  }
+  0%,
   100% {
-    background-position: -120% 50%;
+    opacity: 0;
+  }
+  45% {
+    opacity: 0;
+  }
+  55% {
+    opacity: 0.75;
+  }
+  65% {
+    opacity: 0;
   }
 }
 
 @keyframes border-sweep {
   0% {
-    background-position: 140% 50%;
+    transform: translate3d(45%, 0, 0);
   }
   100% {
-    background-position: -140% 50%;
+    transform: translate3d(-45%, 0, 0);
   }
 }
 
 @keyframes star-drift {
   from {
-    background-position: 0 0;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: 0 1200px;
+    transform: translate3d(0, 1200px, 0);
   }
 }
 
