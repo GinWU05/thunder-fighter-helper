@@ -43,6 +43,7 @@ type ReminderSettings = {
 
 type ReminderAction =
   | "register"
+  | "toggle-bark"
   | "test-bark"
   | "enable-web-push"
   | "disable-web-push"
@@ -330,6 +331,9 @@ const apiJson = async <T,>(
 
   return payload as T;
 };
+
+const formatServerError = (error: unknown, fallback: string) =>
+  `服务端响应：${error instanceof Error ? error.message : fallback}`;
 
 const getStoredNumber = (value: unknown, fallback: number) => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -695,7 +699,7 @@ export default function Home() {
     setRegisterUsername(owner.username);
     loadPendingReminders(owner).catch((error) => {
       setReminderStatus(
-        error instanceof Error ? error.message : "加载提醒失败",
+        formatServerError(error, "加载提醒失败"),
       );
     });
   }, [loadPendingReminders]);
@@ -817,7 +821,7 @@ export default function Home() {
         "禁用所有通知渠道会同时清空提醒列表，是否继续？",
       );
       if (!confirmed) {
-        return;
+        return false;
       }
       if (reminderOwner) {
         setReminderStatus("");
@@ -826,9 +830,9 @@ export default function Home() {
           setReminderStatus("提醒列表已清空");
         } catch (error) {
           setReminderStatus(
-            error instanceof Error ? error.message : "清空提醒列表失败",
+            formatServerError(error, "清空提醒列表失败"),
           );
-          return;
+          return false;
         }
       }
     }
@@ -839,6 +843,7 @@ export default function Home() {
         : current.filter((item) => item !== channel);
       return Array.from(new Set(updated)).sort() as ReminderChannel[];
     });
+    return true;
   };
 
   const getServiceWorkerRegistration = async () =>
@@ -857,6 +862,12 @@ export default function Home() {
     beginReminderAction("enable-web-push");
     setReminderStatus("");
     try {
+      if (webPushSubscriptionId) {
+        await toggleReminderChannel("webpush", true);
+        setReminderStatus("Web 通知已开启");
+        return;
+      }
+
       if (Notification.permission === "denied") {
         setReminderStatus("通知权限未开启，Web 通知不可用");
         return;
@@ -900,7 +911,7 @@ export default function Home() {
       setReminderStatus("Web 通知已开启");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "开启 Web 通知失败",
+        formatServerError(error, "开启 Web 通知失败"),
       );
     } finally {
       finishReminderAction();
@@ -916,6 +927,11 @@ export default function Home() {
     beginReminderAction("disable-web-push");
     setReminderStatus("");
     try {
+      const channelDisabled = await toggleReminderChannel("webpush", false);
+      if (!channelDisabled) {
+        return;
+      }
+
       const registration = await navigator.serviceWorker.getRegistration();
       const subscription = await registration?.pushManager.getSubscription();
       await subscription?.unsubscribe();
@@ -929,12 +945,37 @@ export default function Home() {
       });
       localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_STORAGE_KEY);
       setWebPushSubscriptionId("");
-      await toggleReminderChannel("webpush", false);
       setReminderStatus("Web 通知已关闭");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "关闭 Web 通知失败",
+        formatServerError(error, "关闭 Web 通知失败"),
       );
+    } finally {
+      finishReminderAction();
+    }
+  };
+
+  const handleToggleWebPush = () => {
+    if (webPushChannelEnabled) {
+      void handleDisableWebPush();
+      return;
+    }
+    void handleEnableWebPush();
+  };
+
+  const handleToggleBarkChannel = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    beginReminderAction("toggle-bark");
+    setReminderStatus("");
+    try {
+      const enabled = await toggleReminderChannel("bark", !barkChannelEnabled);
+      if (enabled) {
+        setReminderStatus(barkChannelEnabled ? "Bark 已关闭" : "Bark 已开启");
+      }
     } finally {
       finishReminderAction();
     }
@@ -964,7 +1005,7 @@ export default function Home() {
       setReminderStatus("Web 测试通知已发送");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "Web 测试通知失败",
+        formatServerError(error, "Web 测试通知失败"),
       );
     } finally {
       finishReminderAction();
@@ -989,7 +1030,7 @@ export default function Home() {
       await loadPendingReminders(payload);
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "注册失败",
+        formatServerError(error, "注册失败"),
       );
     } finally {
       finishReminderAction();
@@ -1017,7 +1058,7 @@ export default function Home() {
       setReminderStatus("已解绑");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "解绑失败",
+        formatServerError(error, "解绑失败"),
       );
     } finally {
       finishReminderAction();
@@ -1044,7 +1085,7 @@ export default function Home() {
       setReminderStatus("测试通知已发送");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "测试通知失败",
+        formatServerError(error, "测试通知失败"),
       );
     } finally {
       finishReminderAction();
@@ -1100,7 +1141,7 @@ export default function Home() {
       );
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "创建提醒失败",
+        formatServerError(error, "创建提醒失败"),
       );
     } finally {
       finishReminderAction();
@@ -1121,7 +1162,7 @@ export default function Home() {
       await loadPendingReminders(reminderOwner);
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "取消提醒失败",
+        formatServerError(error, "取消提醒失败"),
       );
     } finally {
       finishReminderAction();
@@ -1142,7 +1183,7 @@ export default function Home() {
       setReminderStatus("列表已刷新");
     } catch (error) {
       setReminderStatus(
-        error instanceof Error ? error.message : "刷新列表失败",
+        formatServerError(error, "刷新列表失败"),
       );
     } finally {
       finishReminderAction();
@@ -1269,6 +1310,8 @@ export default function Home() {
   const inputBase =
     "input-field mt-2 w-full text-base sm:text-sm font-medium text-foreground";
   const reminderButtonGroupBase = "flex flex-wrap items-center gap-3";
+  const reminderSectionTitleBase =
+    "text-[15px] font-semibold text-[rgba(47,210,255,0.82)]";
   const selectedReminderDueAt = parseLocalDateTime(
     reminderDueDate,
     reminderDueTime,
@@ -1553,14 +1596,11 @@ export default function Home() {
                 <div className="mt-6 grid gap-6">
                   <div className="space-y-3 border-b border-accent-blue/15 pb-5">
                     <div className="flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold text-foreground">
+                      <h3 className={reminderSectionTitleBase}>
                         账号绑定
                       </h3>
-                      <span className="text-xs text-muted">
-                        {reminderOwner ? reminderOwner.username : "未绑定"}
-                      </span>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
                       <label
                         className="text-sm font-medium text-foreground"
                         htmlFor="reminder-username"
@@ -1572,7 +1612,7 @@ export default function Home() {
                           type="text"
                           value={registerUsername}
                           disabled={Boolean(reminderOwner) || reminderBusy}
-                          placeholder="3-32位字母数字_-"
+                          placeholder="请输入3-32位字母数字_-"
                           onChange={(event) =>
                             setRegisterUsername(event.target.value)
                           }
@@ -1580,7 +1620,7 @@ export default function Home() {
                       </label>
                       {reminderOwner ? (
                         <button
-                          className="min-w-[78px] rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="mt-0 min-w-[78px] rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-7"
                           type="button"
                           aria-busy={reminderAction === "unregister"}
                           disabled={reminderBusy}
@@ -1592,7 +1632,7 @@ export default function Home() {
                         </button>
                       ) : (
                         <button
-                          className="min-w-[78px] rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="mt-0 min-w-[78px] rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-7"
                           type="button"
                           aria-busy={reminderAction === "register"}
                           disabled={reminderBusy}
@@ -1607,26 +1647,101 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-4 border-b border-accent-blue/15 pb-5">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className={reminderSectionTitleBase}>
                       通知渠道
                     </h3>
-                    <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="grid gap-4">
                       <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 p-4 shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
-                        <label className="flex items-center justify-between gap-3 text-sm font-semibold text-foreground">
-                          Bark
-                          <input
-                            className="h-4 w-4 accent-accent-blue"
-                            type="checkbox"
-                            checked={barkChannelEnabled}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-foreground">
+                            Web 通知
+                          </p>
+                          <button
+                            className={`min-w-[96px] rounded-2xl border px-4 py-2 text-sm font-semibold text-foreground transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              webPushChannelEnabled
+                                ? "border-accent-red/35 bg-accent-red/10 hover:bg-accent-red/20"
+                                : "border-accent-blue/35 bg-accent-blue/15 hover:bg-accent-blue/25"
+                            }`}
+                            type="button"
+                            aria-busy={
+                              reminderAction === "enable-web-push" ||
+                              reminderAction === "disable-web-push"
+                            }
+                            disabled={
+                              !reminderOwner ||
+                              reminderBusy ||
+                              (!webPushChannelEnabled &&
+                                Boolean(webPushUnavailableReason))
+                            }
+                            onClick={handleToggleWebPush}
+                          >
+                            {visibleReminderAction === "enable-web-push"
+                              ? "开启中..."
+                              : visibleReminderAction === "disable-web-push"
+                                ? "关闭中..."
+                                : webPushChannelEnabled
+                                  ? "关闭 Web"
+                                  : "开启 Web"}
+                          </button>
+                        </div>
+                        {webPushUnavailableReason ? (
+                          <p className="mt-4 text-sm text-muted">
+                            {webPushUnavailableReason}
+                          </p>
+                        ) : (
+                          <p className="mt-4 text-sm text-muted">
+                            {webPushSubscriptionId
+                              ? "当前设备已开启 Web 通知。"
+                              : "开启后可使用当前设备的 Web 通知。"}
+                          </p>
+                        )}
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            className="min-w-[96px] rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            type="button"
+                            aria-busy={reminderAction === "test-web-push"}
+                            disabled={
+                              !reminderOwner ||
+                              reminderBusy ||
+                              !webPushChannelEnabled ||
+                              !webPushSubscriptionId
+                            }
+                            onClick={handleTestWebPush}
+                          >
+                            {visibleReminderAction === "test-web-push"
+                              ? "测试中..."
+                              : "测试 Web"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 p-4 shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-foreground">
+                            Bark
+                          </p>
+                          <button
+                            className={`min-w-[96px] rounded-2xl border px-4 py-2 text-sm font-semibold text-foreground transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              barkChannelEnabled
+                                ? "border-accent-red/35 bg-accent-red/10 hover:bg-accent-red/20"
+                                : "border-accent-blue/35 bg-accent-blue/15 hover:bg-accent-blue/25"
+                            }`}
+                            type="button"
+                            aria-busy={reminderAction === "toggle-bark"}
                             disabled={!reminderOwner || reminderBusy}
-                            onChange={(event) => {
-                              void toggleReminderChannel(
-                                "bark",
-                                event.target.checked,
-                              );
+                            onClick={() => {
+                              void handleToggleBarkChannel();
                             }}
-                          />
-                        </label>
+                          >
+                            {visibleReminderAction === "toggle-bark"
+                              ? barkChannelEnabled
+                                ? "关闭中..."
+                                : "开启中..."
+                              : barkChannelEnabled
+                                ? "关闭 Bark"
+                                : "开启 Bark"}
+                          </button>
+                        </div>
                         <label
                           className="mt-4 block text-sm font-medium text-foreground"
                           htmlFor="reminder-bark-url"
@@ -1664,97 +1779,11 @@ export default function Home() {
                             : "测试 Bark"}
                         </button>
                       </div>
-
-                      <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 p-4 shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
-                        <label className="flex items-center justify-between gap-3 text-sm font-semibold text-foreground">
-                          Web 通知
-                          <input
-                            className="h-4 w-4 accent-accent-blue"
-                            type="checkbox"
-                            checked={webPushChannelEnabled}
-                            disabled={
-                              !reminderOwner ||
-                              reminderBusy ||
-                              Boolean(webPushUnavailableReason)
-                            }
-                            onChange={(event) => {
-                              void toggleReminderChannel(
-                                "webpush",
-                                event.target.checked,
-                              );
-                            }}
-                          />
-                        </label>
-                        {webPushUnavailableReason ? (
-                          <p className="mt-4 text-sm text-muted">
-                            {webPushUnavailableReason}
-                          </p>
-                        ) : (
-                          <p className="mt-4 text-sm text-muted">
-                            {webPushSubscriptionId
-                              ? "当前设备已开启 Web 通知。"
-                              : "勾选后可开启当前设备的 Web 通知。"}
-                          </p>
-                        )}
-                        <div className="mt-4 flex flex-wrap gap-3">
-                          <button
-                            className="min-w-[96px] rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
-                            type="button"
-                            aria-busy={reminderAction === "enable-web-push"}
-                            disabled={
-                              !reminderOwner ||
-                              reminderBusy ||
-                              !webPushChannelEnabled ||
-                              Boolean(webPushUnavailableReason) ||
-                              Boolean(webPushSubscriptionId)
-                            }
-                            onClick={handleEnableWebPush}
-                          >
-                            {visibleReminderAction === "enable-web-push"
-                              ? "开启中..."
-                              : webPushSubscriptionId
-                                ? "Web 已开启"
-                                : "开启 Web"}
-                          </button>
-                          <button
-                            className="min-w-[96px] rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            type="button"
-                            aria-busy={reminderAction === "test-web-push"}
-                            disabled={
-                              !reminderOwner ||
-                              reminderBusy ||
-                              !webPushChannelEnabled ||
-                              !webPushSubscriptionId
-                            }
-                            onClick={handleTestWebPush}
-                          >
-                            {visibleReminderAction === "test-web-push"
-                              ? "测试中..."
-                              : "测试 Web"}
-                          </button>
-                          <button
-                            className="min-w-[96px] rounded-2xl border border-accent-red/35 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            type="button"
-                            aria-busy={reminderAction === "disable-web-push"}
-                            disabled={
-                              !reminderOwner ||
-                              reminderBusy ||
-                              !webPushChannelEnabled ||
-                              !webPushSubscriptionId
-                            }
-                            onClick={handleDisableWebPush}
-                          >
-                            {visibleReminderAction === "disable-web-push"
-                              ? "关闭中..."
-                              : "关闭 Web"}
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   </div>
 
                   <div className="space-y-4 border-b border-accent-blue/15 pb-5">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className={reminderSectionTitleBase}>
                       创建提醒
                     </h3>
                     <label
@@ -1844,15 +1873,17 @@ export default function Home() {
                           ? "创建中..."
                           : "创建提醒"}
                       </button>
-                      <span className="text-sm text-muted">
-                        {reminderChannels.length > 0
-                          ? `将通过 ${reminderChannels
-                              .map((channel) =>
-                                channel === "webpush" ? "Web" : "Bark",
-                              )
-                              .join(" + ")} 发送`
-                          : "请先启用通知渠道"}
-                      </span>
+                      {reminderOwner ? (
+                        <span className="text-sm text-muted">
+                          {reminderChannels.length > 0
+                            ? `将通过 ${reminderChannels
+                                .map((channel) =>
+                                  channel === "webpush" ? "Web" : "Bark",
+                                )
+                                .join(" + ")} 发送`
+                            : "请先启用通知渠道"}
+                        </span>
+                      ) : null}
                       {reminderStatus ? (
                         <span className="text-sm text-muted">
                           {reminderStatus}
@@ -1863,7 +1894,7 @@ export default function Home() {
 
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold text-foreground">
+                      <h3 className={reminderSectionTitleBase}>
                         提醒列表
                       </h3>
                       <button
