@@ -1,7 +1,20 @@
+import {
+  readWebPushIndex,
+  removeWebPushSubscription,
+  webPushKey,
+  type ReminderChannel,
+  type ReminderDelivery,
+  type WebPushRecord,
+} from "../../../src/lib/reminderCore";
+import { sendWebPush } from "../../../src/lib/webPush";
+
 type ReminderKv = KVNamespace;
 
 type Env = {
   REMINDERS_KV: ReminderKv;
+  WEB_PUSH_VAPID_PUBLIC_KEY?: string;
+  WEB_PUSH_VAPID_PRIVATE_KEY?: string;
+  WEB_PUSH_VAPID_SUBJECT?: string;
 };
 
 type ReminderRecord = {
@@ -13,6 +26,9 @@ type ReminderRecord = {
   message?: string;
   dueAtIso?: string;
   retryCount?: number;
+  channels?: ReminderChannel[];
+  webPushSubscriptionIds?: string[];
+  delivery?: ReminderDelivery;
   lastError?: string;
 };
 
@@ -35,6 +51,18 @@ const SCHEDULER_NEXT_DUE_KEY = "scheduler:nextDueAt";
 const SCHEDULER_DUE_PREFIX = "scheduler:due:";
 const MAX_RETRY_COUNT = 3;
 const MAX_BUCKETS_PER_RUN = 10;
+
+const getVapidConfig = (env: Env) => {
+  const publicKey = env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ?? "";
+  const privateKey = env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() ?? "";
+  const subject = env.WEB_PUSH_VAPID_SUBJECT?.trim() ?? "";
+
+  if (!publicKey || !privateKey || !subject) {
+    return null;
+  }
+
+  return { publicKey, privateKey, subject };
+};
 
 const schedulerDueKey = (minuteIso: string) =>
   `${SCHEDULER_DUE_PREFIX}${minuteIso}`;
@@ -122,19 +150,175 @@ const sendBark = async (reminder: ReminderRecord) => {
   }
 };
 
+const getReminderChannels = (reminder: ReminderRecord) => {
+  if (!Array.isArray(reminder.channels)) {
+    return ["bark"] satisfies ReminderChannel[];
+  }
+
+  const channels = uniqueSortedStrings(
+    reminder.channels.filter(
+      (channel) => channel === "bark" || channel === "webpush",
+    ),
+  ) as ReminderChannel[];
+  return channels.length > 0
+    ? channels
+    : (["bark"] satisfies ReminderChannel[]);
+};
+
+const readWebPushRecord = async (
+  env: Env,
+  userId: string,
+  subscriptionId: string,
+) =>
+  parseJson<WebPushRecord>(
+    await env.REMINDERS_KV.get(webPushKey(userId, subscriptionId)),
+  );
+
+const sendReminderWebPush = async (
+  env: Env,
+  reminder: ReminderRecord,
+) => {
+  const vapid = getVapidConfig(env);
+  if (!vapid) {
+    throw new Error("webpush:missing_vapid");
+  }
+  if (!reminder.userId) {
+    throw new Error("webpush:missing_user");
+  }
+
+  const indexedSubscriptionIds = await readWebPushIndex(
+    env.REMINDERS_KV,
+    reminder.userId,
+  );
+  const subscriptionIds = uniqueSortedStrings(
+    Array.isArray(reminder.webPushSubscriptionIds) &&
+      reminder.webPushSubscriptionIds.length > 0
+      ? reminder.webPushSubscriptionIds
+      : indexedSubscriptionIds,
+  );
+  if (subscriptionIds.length === 0) {
+    throw new Error("webpush:missing_subscription");
+  }
+
+  let sent = 0;
+  let lastError = "";
+  const expiredSubscriptionIds: string[] = [];
+
+  for (const subscriptionId of subscriptionIds) {
+    const record = await readWebPushRecord(env, reminder.userId, subscriptionId);
+    if (!record?.subscription) {
+      expiredSubscriptionIds.push(subscriptionId);
+      continue;
+    }
+
+    const response = await sendWebPush(
+      record.subscription,
+      {
+        title: reminder.title || "雷霆战机提醒",
+        body: reminder.message || "提醒时间到了",
+        url: "/",
+      },
+      vapid,
+    );
+
+    if (response.status === 404 || response.status === 410) {
+      expiredSubscriptionIds.push(subscriptionId);
+      await removeWebPushSubscription(
+        env.REMINDERS_KV,
+        reminder.userId,
+        subscriptionId,
+      );
+      lastError = `webpush:${response.status}`;
+      continue;
+    }
+    if (!response.ok) {
+      lastError = `webpush:${response.status}`;
+      continue;
+    }
+
+    sent += 1;
+  }
+
+  if (sent === 0) {
+    throw new Error(lastError || "webpush:failed");
+  }
+
+  return expiredSubscriptionIds;
+};
+
+const isReminderComplete = (
+  channels: ReminderChannel[],
+  delivery: ReminderDelivery,
+) =>
+  channels.every((channel) => {
+    if (channel === "bark") {
+      return Boolean(delivery.barkSentAtIso);
+    }
+    return Boolean(delivery.webPushSentAtIso);
+  });
+
 const handleReminder = async (
   env: Env,
   key: string,
   reminder: ReminderRecord,
+  nowIso: string,
 ) => {
+  const channels = getReminderChannels(reminder);
+  const delivery: ReminderDelivery = { ...(reminder.delivery ?? {}) };
+
   try {
-    await sendBark(reminder);
-    await env.REMINDERS_KV.delete(key);
-    return "sent" as const;
+    const failedErrors: string[] = [];
+
+    if (channels.includes("bark") && !delivery.barkSentAtIso) {
+      try {
+        await sendBark(reminder);
+        delivery.barkSentAtIso = nowIso;
+      } catch (error) {
+        failedErrors.push(
+          error instanceof Error ? `bark:${error.message}` : "bark:unknown_error",
+        );
+      }
+    }
+
+    if (channels.includes("webpush") && !delivery.webPushSentAtIso) {
+      try {
+        const failedSubscriptionIds = await sendReminderWebPush(env, reminder);
+        delivery.webPushSentAtIso = nowIso;
+        if (failedSubscriptionIds.length > 0) {
+          delivery.webPushFailedSubscriptionIds = uniqueSortedStrings([
+            ...(Array.isArray(delivery.webPushFailedSubscriptionIds)
+              ? delivery.webPushFailedSubscriptionIds
+              : []),
+            ...failedSubscriptionIds,
+          ]);
+        }
+      } catch (error) {
+        failedErrors.push(
+          error instanceof Error ? error.message : "webpush:unknown_error",
+        );
+      }
+    }
+
+    if (isReminderComplete(channels, delivery)) {
+      await env.REMINDERS_KV.delete(key);
+      return "sent" as const;
+    }
+
+    if (failedErrors.length === 0) {
+      await env.REMINDERS_KV.put(
+        key,
+        JSON.stringify({ ...reminder, delivery, channels }),
+      );
+      return "retry" as const;
+    }
+
+    throw new Error(failedErrors.join(";"));
   } catch (error) {
     const retryCount = getRetryCount(reminder) + 1;
     const updated: ReminderRecord = {
       ...reminder,
+      channels,
+      delivery,
       retryCount,
       lastError: error instanceof Error ? error.message : "unknown_error",
     };
@@ -254,12 +438,21 @@ export const processDueReminders = async (env: Env, now = Date.now()) => {
             continue;
           }
 
-          if (!reminder.barkUrl) {
+          const channels = getReminderChannels(reminder);
+          if (
+            (channels.includes("bark") && !reminder.barkUrl) ||
+            (channels.includes("webpush") && !reminder.userId)
+          ) {
             skipped += 1;
             continue;
           }
 
-          const status = await handleReminder(env, reminderKey, reminder);
+          const status = await handleReminder(
+            env,
+            reminderKey,
+            reminder,
+            nowIso,
+          );
           if (status === "sent") {
             sent += 1;
           } else {

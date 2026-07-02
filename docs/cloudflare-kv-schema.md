@@ -14,6 +14,8 @@
 |---|---|---|---|---|---|
 | `username:{username}` | string | username 占用关系，value 是 `userId` | Pages API 注册 | Pages API 鉴权 | Pages API 解绑 |
 | `user:{userId}:profile` | JSON | 用户资料，保存 `ownerTokenHash`，不保存明文 ownerToken | Pages API 注册 | Pages API 鉴权 | Pages API 解绑 |
+| `user:{userId}:webpush` | JSON | 用户 Web Push subscription id 索引 | Pages API 订阅/取消订阅 | Pages API 创建提醒、Cron Worker 到期发送 | Pages API 取消订阅/解绑 |
+| `webpush:{userId}:{subscriptionId}` | JSON | 单个浏览器/设备的 Web Push subscription | Pages API 订阅 | Pages API 测试通知、Cron Worker 到期发送 | Pages API 取消订阅、Cron Worker 清理失效订阅 |
 | `reminder:{dueAtIso}:{userId}:{uuid}` | JSON | 待触发提醒 | Pages API 创建提醒 | Pages API 列表/取消、Cron Worker 到期读取 | Pages API 取消、Cron Worker 成功发送 |
 | `failed:{dueAtIso}:{userId}:{uuid}` | JSON | 失败 3 次后的提醒归档 | Cron Worker | 人工排查 | 人工清理 |
 | `scheduler:nextDueAt` | JSON | 调度游标，记录待处理分钟队列和下一批到期分钟，避免 Cron 全量 list | Pages API 创建提醒、Cron Worker 更新 | Cron Worker | Cron Worker |
@@ -76,7 +78,14 @@ key: reminder:2026-06-29T15:11:57.014Z:0ed74018-6565-4aa8-8b16-f26e1c06868d:49b4
   "message": "体力快满了",
   "dueAtIso": "2026-06-29T15:11:57.014Z",
   "retryCount": 0,
-  "createdAtIso": "2026-06-29T15:10:57.230Z"
+  "createdAtIso": "2026-06-29T15:10:57.230Z",
+  "channels": ["bark", "webpush"],
+  "webPushSubscriptionIds": ["sha256_endpoint_prefix"],
+  "delivery": {
+    "barkSentAtIso": "2026-06-29T15:11:58.014Z",
+    "webPushSentAtIso": "2026-06-29T15:11:58.014Z",
+    "webPushFailedSubscriptionIds": []
+  }
 }
 ```
 
@@ -93,6 +102,9 @@ key: reminder:2026-06-29T15:11:57.014Z:0ed74018-6565-4aa8-8b16-f26e1c06868d:49b4
 | `dueAtIso` | string | 到期时间，UTC ISO 字符串 |
 | `retryCount` | number | 已重试次数 |
 | `createdAtIso` | string | 创建时间，UTC ISO 字符串 |
+| `channels` | string[] | 可选，新提醒使用的通道：`bark`、`webpush`；旧数据缺省时按 Bark-only 处理 |
+| `webPushSubscriptionIds` | string[] | 可选，Web Push 目标 subscription id 列表 |
+| `delivery` | object | 可选，记录每个通道是否已成功发送，避免重试时重复发送 |
 | `lastError` | string | 可选，失败后记录最后一次错误 |
 
 注意：
@@ -100,6 +112,56 @@ key: reminder:2026-06-29T15:11:57.014Z:0ed74018-6565-4aa8-8b16-f26e1c06868d:49b4
 - `dueAtIso` 使用 UTC ISO，页面展示时再转成本地时区。
 - key 里包含 ISO 时间，ISO 时间本身包含 `:`，不要用简单 `key.split(":")` 解析 key。
 - Bark 实际请求由 Worker 拼接为 `{barkUrl}/{encodedTitle}/{encodedMessage}?group=雷霆战机助手`。
+- Web Push 实际请求由 Cron Worker 使用 VAPID 签名后发送到 subscription endpoint。
+
+## `user:{userId}:webpush`
+
+用户 Web Push subscription id 索引。创建 Web Push 提醒时，如果请求没有指定 `webPushSubscriptionIds`，Pages API 会使用该索引里的全部可用订阅。
+
+```txt
+key: user:0ed74018-6565-4aa8-8b16-f26e1c06868d:webpush
+```
+
+```json
+{
+  "userId": "0ed74018-6565-4aa8-8b16-f26e1c06868d",
+  "subscriptionIds": ["sha256_endpoint_prefix"],
+  "updatedAtIso": "2026-06-29T15:10:57.230Z"
+}
+```
+
+## `webpush:{userId}:{subscriptionId}`
+
+单个浏览器/设备的 Web Push subscription。`subscriptionId` 是 subscription endpoint 的 SHA-256 hex 前 32 位，用于避免把 endpoint 放进 key。
+
+```txt
+key: webpush:0ed74018-6565-4aa8-8b16-f26e1c06868d:sha256_endpoint_prefix
+```
+
+```json
+{
+  "subscriptionId": "sha256_endpoint_prefix",
+  "userId": "0ed74018-6565-4aa8-8b16-f26e1c06868d",
+  "username": "ginwu_pc_chrome",
+  "endpointHash": "sha256_endpoint_prefix",
+  "subscription": {
+    "endpoint": "https://push.example/subscription-id",
+    "expirationTime": null,
+    "keys": {
+      "p256dh": "base64url_public_key",
+      "auth": "base64url_auth_secret"
+    }
+  },
+  "userAgent": "Mozilla/5.0 ...",
+  "createdAtIso": "2026-06-29T15:10:57.230Z",
+  "updatedAtIso": "2026-06-29T15:10:57.230Z"
+}
+```
+
+注意：
+
+- `subscription.endpoint` 是发送 Web Push 必需数据，不放入 key，但会保存在 value 中。
+- Web Push 返回 `404` 或 `410` 时，Cron Worker 会删除对应 `webpush:*` key，并更新 `user:{userId}:webpush` 索引。
 
 ## `failed:{dueAtIso}:{userId}:{uuid}`
 
@@ -205,4 +267,9 @@ key: scheduler:due:2026-06-30T15:12:00.000Z
 
 ## Reminder 字段要求
 
-Cron Worker 发送提醒时会读取 `barkUrl`、`title`、`message`、`dueAtIso`、`retryCount`、`lastError`。如果 reminder 缺少 `barkUrl` 或 `dueAtIso`，Worker 会跳过，不会调用 Bark，也不会自动删除原始 reminder。
+Cron Worker 发送提醒时会读取 `channels`、`barkUrl`、`webPushSubscriptionIds`、`title`、`message`、`dueAtIso`、`retryCount`、`delivery`、`lastError`。
+
+- 旧 reminder 缺少 `channels` 时，按 `["bark"]` 处理。
+- Bark 通道需要 `barkUrl`。
+- Web Push 通道需要 `userId`，并需要 `webPushSubscriptionIds` 或 `user:{userId}:webpush` 索引中存在可用订阅。
+- `delivery` 中已成功的通道不会在重试时重复发送。

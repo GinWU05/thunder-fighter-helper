@@ -11,9 +11,15 @@ import {
 const FRIEND_GIFT_TOTAL = 30 * 5;
 const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
 const REMINDER_SETTINGS_STORAGE_KEY = "thunder-fighter-reminder-settings";
+const WEB_PUSH_SUBSCRIPTION_STORAGE_KEY =
+  "thunder-fighter-web-push-subscription";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const WEB_PUSH_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY ?? "";
 const REMINDER_LOADING_DELAY_MS = 220;
 const REMINDER_MIN_LOADING_MS = 400;
+
+type ReminderChannel = "bark" | "webpush";
 
 type ReminderOwner = {
   username: string;
@@ -26,20 +32,29 @@ type PendingReminder = {
   message: string;
   dueAtIso: string;
   retryCount: number;
+  channels?: ReminderChannel[];
 };
 
 type ReminderSettings = {
   barkUrl: string;
   title: string;
+  channels?: ReminderChannel[];
 };
 
 type ReminderAction =
   | "register"
   | "test-bark"
+  | "enable-web-push"
+  | "disable-web-push"
+  | "test-web-push"
   | "unregister"
   | "create"
   | "refresh"
   | `cancel:${string}`;
+
+type StoredWebPushSubscription = {
+  subscriptionId: string;
+};
 
 const formatTime = (date: Date) => {
   const hours = String(date.getHours()).padStart(2, "0");
@@ -224,6 +239,64 @@ const parseReminderSettings = (raw: string | null): ReminderSettings | null => {
   } catch {
     return null;
   }
+};
+
+const parseStoredWebPushSubscription = (
+  raw: string | null,
+): StoredWebPushSubscription | null => {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as StoredWebPushSubscription;
+    if (!parsed || typeof parsed.subscriptionId !== "string") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const publicKeyToBytes = (value: string) => {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const binary = window.atob(padded);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+};
+
+const getWebPushUnavailableReason = () => {
+  if (!WEB_PUSH_PUBLIC_KEY) {
+    return "缺少 Web Push 公钥配置";
+  }
+  if (
+    !("Notification" in window) ||
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window)
+  ) {
+    return "当前浏览器不支持 Web 通知";
+  }
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+      true;
+  if (isIOS && !isStandalone) {
+    return "iPhone 用户需要先将本站添加到主屏幕，然后从主屏幕图标打开，才能开启通知。";
+  }
+
+  return "";
 };
 
 const apiJson = async <T,>(
@@ -434,6 +507,9 @@ export default function Home() {
   const [reminderBarkUrl, setReminderBarkUrl] = useState("");
   const [reminderTitle, setReminderTitle] = useState("雷霆战机提醒");
   const [reminderMessage, setReminderMessage] = useState("体力快满了");
+  const [reminderChannels, setReminderChannels] = useState<ReminderChannel[]>([
+    "bark",
+  ]);
   const [reminderDueDate, setReminderDueDate] = useState("");
   const [reminderDueTime, setReminderDueTime] = useState("");
   const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>(
@@ -447,8 +523,12 @@ export default function Home() {
     useState<ReminderAction | null>(null);
   const [reminderListLoading, setReminderListLoading] = useState(false);
   const [reminderSettingsReady, setReminderSettingsReady] = useState(false);
+  const [webPushUnavailableReason, setWebPushUnavailableReason] = useState("");
+  const [webPushSubscriptionId, setWebPushSubscriptionId] = useState("");
   const reminderBusy =
     reminderAction !== null || visibleReminderAction !== null;
+  const webPushReady =
+    !webPushUnavailableReason && Boolean(webPushSubscriptionId);
   const visibleReminderActionRef = useRef<ReminderAction | null>(null);
   const visibleReminderActionStartedAt = useRef(0);
   const loadingDelayTimer = useRef<number | null>(null);
@@ -592,7 +672,17 @@ export default function Home() {
     if (settings) {
       setReminderBarkUrl(settings.barkUrl);
       setReminderTitle(settings.title);
+      if (Array.isArray(settings.channels) && settings.channels.length > 0) {
+        setReminderChannels(settings.channels);
+      }
     }
+    const storedWebPushSubscription = parseStoredWebPushSubscription(
+      localStorage.getItem(WEB_PUSH_SUBSCRIPTION_STORAGE_KEY),
+    );
+    if (storedWebPushSubscription) {
+      setWebPushSubscriptionId(storedWebPushSubscription.subscriptionId);
+    }
+    setWebPushUnavailableReason(getWebPushUnavailableReason());
     setReminderSettingsReady(true);
 
     if (!owner) {
@@ -618,9 +708,15 @@ export default function Home() {
       JSON.stringify({
         barkUrl: reminderBarkUrl,
         title: reminderTitle,
+        channels: reminderChannels,
       }),
     );
-  }, [reminderBarkUrl, reminderSettingsReady, reminderTitle]);
+  }, [
+    reminderBarkUrl,
+    reminderChannels,
+    reminderSettingsReady,
+    reminderTitle,
+  ]);
 
   useEffect(
     () => () => {
@@ -686,6 +782,145 @@ export default function Home() {
     hideVisibleAction();
   };
 
+  const toggleReminderChannel = (channel: ReminderChannel, checked: boolean) => {
+    setReminderChannels((current) => {
+      const next = checked
+        ? [...current, channel]
+        : current.filter((item) => item !== channel);
+      return Array.from(new Set(next)).sort() as ReminderChannel[];
+    });
+  };
+
+  const getServiceWorkerRegistration = async () =>
+    navigator.serviceWorker.register("/sw.js");
+
+  const handleEnableWebPush = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+    if (webPushUnavailableReason) {
+      setReminderStatus(webPushUnavailableReason);
+      return;
+    }
+
+    beginReminderAction("enable-web-push");
+    setReminderStatus("");
+    try {
+      if (Notification.permission === "denied") {
+        setReminderStatus("通知权限未开启，Web 通知不可用");
+        return;
+      }
+
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setReminderStatus("通知权限未开启，Web 通知不可用");
+        return;
+      }
+
+      const registration = await getServiceWorkerRegistration();
+      const existingSubscription =
+        await registration.pushManager.getSubscription();
+      const subscription =
+        existingSubscription ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: publicKeyToBytes(WEB_PUSH_PUBLIC_KEY),
+        }));
+      const payload = await apiJson<{ subscriptionId: string }>(
+        "/api/reminders/web-push/subscribe",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...reminderOwner,
+            subscription: subscription.toJSON(),
+          }),
+        },
+      );
+
+      localStorage.setItem(
+        WEB_PUSH_SUBSCRIPTION_STORAGE_KEY,
+        JSON.stringify({ subscriptionId: payload.subscriptionId }),
+      );
+      setWebPushSubscriptionId(payload.subscriptionId);
+      toggleReminderChannel("webpush", true);
+      setReminderStatus("Web 通知已开启");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "开启 Web 通知失败",
+      );
+    } finally {
+      finishReminderAction();
+    }
+  };
+
+  const handleDisableWebPush = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+
+    beginReminderAction("disable-web-push");
+    setReminderStatus("");
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = await registration?.pushManager.getSubscription();
+      await subscription?.unsubscribe();
+      await apiJson("/api/reminders/web-push/subscribe", {
+        method: "DELETE",
+        body: JSON.stringify({
+          ...reminderOwner,
+          subscriptionId: webPushSubscriptionId,
+          subscription: subscription?.toJSON(),
+        }),
+      });
+      localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_STORAGE_KEY);
+      setWebPushSubscriptionId("");
+      toggleReminderChannel("webpush", false);
+      setReminderStatus("Web 通知已关闭");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "关闭 Web 通知失败",
+      );
+    } finally {
+      finishReminderAction();
+    }
+  };
+
+  const handleTestWebPush = async () => {
+    if (!reminderOwner) {
+      setReminderStatus("缺少 ownerToken");
+      return;
+    }
+    if (!webPushSubscriptionId) {
+      setReminderStatus("请先开启 Web 通知");
+      return;
+    }
+
+    beginReminderAction("test-web-push");
+    setReminderStatus("");
+    try {
+      await apiJson("/api/reminders/test-web-push", {
+        method: "POST",
+        body: JSON.stringify({
+          ...reminderOwner,
+          title: reminderTitle,
+          subscriptionId: webPushSubscriptionId,
+        }),
+      });
+      setReminderStatus("Web 测试通知已发送");
+    } catch (error) {
+      setReminderStatus(
+        error instanceof Error ? error.message : "Web 测试通知失败",
+      );
+    } finally {
+      finishReminderAction();
+    }
+  };
+
   const handleRegisterReminderUser = async () => {
     beginReminderAction("register");
     setReminderStatus("");
@@ -725,7 +960,9 @@ export default function Home() {
         body: JSON.stringify(reminderOwner),
       });
       localStorage.removeItem(REMINDER_OWNER_STORAGE_KEY);
+      localStorage.removeItem(WEB_PUSH_SUBSCRIPTION_STORAGE_KEY);
       setReminderOwner(null);
+      setWebPushSubscriptionId("");
       setPendingReminders([]);
       setReminderStatus("已解绑");
     } catch (error) {
@@ -775,6 +1012,14 @@ export default function Home() {
       setReminderStatus("提醒时间无效");
       return;
     }
+    if (reminderChannels.length === 0) {
+      setReminderStatus("请至少选择一种通知通道");
+      return;
+    }
+    if (reminderChannels.includes("webpush") && !webPushReady) {
+      setReminderStatus("请先开启 Web 通知");
+      return;
+    }
 
     beginReminderAction("create");
     setReminderStatus("");
@@ -786,6 +1031,10 @@ export default function Home() {
           body: JSON.stringify({
             ...reminderOwner,
             barkUrl: reminderBarkUrl,
+            channels: reminderChannels,
+            webPushSubscriptionIds: webPushSubscriptionId
+              ? [webPushSubscriptionId]
+              : [],
             title: reminderTitle,
             message: reminderMessage,
             dueAtIso: dueAt.toISOString(),
@@ -1327,6 +1576,54 @@ export default function Home() {
                         : "测试 Bark"}
                     </button>
                     <button
+                      className="min-w-[112px] rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      aria-busy={reminderAction === "enable-web-push"}
+                      disabled={
+                        !reminderOwner ||
+                        reminderBusy ||
+                        Boolean(webPushUnavailableReason) ||
+                        Boolean(webPushSubscriptionId)
+                      }
+                      onClick={handleEnableWebPush}
+                    >
+                      {visibleReminderAction === "enable-web-push"
+                        ? "开启中..."
+                        : webPushSubscriptionId
+                          ? "Web 已开启"
+                          : "开启 Web"}
+                    </button>
+                    <button
+                      className="min-w-[112px] rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      aria-busy={reminderAction === "test-web-push"}
+                      disabled={
+                        !reminderOwner ||
+                        reminderBusy ||
+                        !webPushSubscriptionId
+                      }
+                      onClick={handleTestWebPush}
+                    >
+                      {visibleReminderAction === "test-web-push"
+                        ? "测试中..."
+                        : "测试 Web"}
+                    </button>
+                    <button
+                      className="min-w-[112px] rounded-2xl border border-accent-red/35 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      aria-busy={reminderAction === "disable-web-push"}
+                      disabled={
+                        !reminderOwner ||
+                        reminderBusy ||
+                        !webPushSubscriptionId
+                      }
+                      onClick={handleDisableWebPush}
+                    >
+                      {visibleReminderAction === "disable-web-push"
+                        ? "关闭中..."
+                        : "关闭 Web"}
+                    </button>
+                    <button
                       className="min-w-[78px] rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
                       aria-busy={reminderAction === "unregister"}
@@ -1338,9 +1635,45 @@ export default function Home() {
                         : "解绑"}
                     </button>
                   </div>
+                  {webPushUnavailableReason ? (
+                    <p className="text-sm text-muted">
+                      {webPushUnavailableReason}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex items-center justify-between gap-3 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-sm font-medium text-foreground shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
+                      Bark
+                      <input
+                        className="h-4 w-4 accent-accent-blue"
+                        type="checkbox"
+                        checked={reminderChannels.includes("bark")}
+                        disabled={!reminderOwner || reminderBusy}
+                        onChange={(event) =>
+                          toggleReminderChannel("bark", event.target.checked)
+                        }
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-sm font-medium text-foreground shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
+                      Web 通知
+                      <input
+                        className="h-4 w-4 accent-accent-blue"
+                        type="checkbox"
+                        checked={reminderChannels.includes("webpush")}
+                        disabled={
+                          !reminderOwner || reminderBusy || !webPushReady
+                        }
+                        onChange={(event) =>
+                          toggleReminderChannel(
+                            "webpush",
+                            event.target.checked,
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
                   <div className="grid gap-4 sm:grid-cols-[1fr_360px]">
                     <label className="text-sm font-medium text-foreground">
                       提醒内容
@@ -1458,7 +1791,12 @@ export default function Home() {
                             </p>
                             <p className="mt-1 text-xs text-muted">
                               {formatReminderTime(reminder.dueAtIso)} · retry{" "}
-                              {reminder.retryCount}
+                              {reminder.retryCount} ·{" "}
+                              {(reminder.channels ?? ["bark"])
+                                .map((channel) =>
+                                  channel === "webpush" ? "Web" : "Bark",
+                                )
+                                .join(" + ")}
                             </p>
                           </div>
                           <button

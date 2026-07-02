@@ -5,17 +5,54 @@ export type ReminderProfile = {
   createdAtIso: string;
 };
 
+export type ReminderChannel = "bark" | "webpush";
+
+export type ReminderDelivery = {
+  barkSentAtIso?: string;
+  webPushSentAtIso?: string;
+  webPushFailedSubscriptionIds?: string[];
+};
+
 export type ReminderRecord = {
   id: string;
   userId: string;
   username: string;
-  barkUrl: string;
+  barkUrl?: string;
   title: string;
   message: string;
   dueAtIso: string;
   retryCount: number;
   createdAtIso: string;
+  channels?: ReminderChannel[];
+  webPushSubscriptionIds?: string[];
+  delivery?: ReminderDelivery;
   lastError?: string;
+};
+
+export type WebPushSubscription = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+};
+
+export type WebPushRecord = {
+  subscriptionId: string;
+  userId: string;
+  username: string;
+  subscription: WebPushSubscription;
+  endpointHash: string;
+  userAgent?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type WebPushIndex = {
+  userId: string;
+  subscriptionIds: string[];
+  updatedAtIso: string;
 };
 
 export type SchedulerNextDue = {
@@ -52,6 +89,7 @@ export const REMINDER_PREFIX = "reminder:";
 export const FAILED_PREFIX = "failed:";
 export const SCHEDULER_NEXT_DUE_KEY = "scheduler:nextDueAt";
 export const SCHEDULER_DUE_PREFIX = "scheduler:due:";
+export const WEB_PUSH_PREFIX = "webpush:";
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 const MAX_TITLE_LENGTH = 60;
@@ -94,6 +132,12 @@ export const usernameKey = (username: string) =>
 
 export const profileKey = (userId: string) =>
   `${USER_PROFILE_PREFIX}${userId}:profile`;
+
+export const webPushIndexKey = (userId: string) =>
+  `${USER_PROFILE_PREFIX}${userId}:webpush`;
+
+export const webPushKey = (userId: string, subscriptionId: string) =>
+  `${WEB_PUSH_PREFIX}${userId}:${subscriptionId}`;
 
 export const reminderKey = (
   dueAtIso: string,
@@ -287,6 +331,118 @@ export const normalizeDueAtIso = (dueAtIso: unknown, now = new Date()) => {
   return dueAt.toISOString();
 };
 
+export const normalizeChannels = (channels: unknown) => {
+  if (!Array.isArray(channels)) {
+    return ["bark"] satisfies ReminderChannel[];
+  }
+
+  const normalized = uniqueSortedStrings(
+    channels.filter((channel): channel is ReminderChannel =>
+      channel === "bark" || channel === "webpush",
+    ),
+  ) as ReminderChannel[];
+
+  return normalized.length > 0 ? normalized : null;
+};
+
+export const normalizeSubscriptionIds = (subscriptionIds: unknown) =>
+  Array.isArray(subscriptionIds)
+    ? uniqueSortedStrings(
+        subscriptionIds.filter(
+          (subscriptionId): subscriptionId is string =>
+            typeof subscriptionId === "string",
+        ),
+      )
+    : [];
+
+export const normalizeWebPushSubscription = (subscription: unknown) => {
+  if (!subscription || typeof subscription !== "object") {
+    return null;
+  }
+
+  const candidate = subscription as {
+    endpoint?: unknown;
+    expirationTime?: unknown;
+    keys?: {
+      p256dh?: unknown;
+      auth?: unknown;
+    };
+  };
+
+  if (
+    typeof candidate.endpoint !== "string" ||
+    !candidate.endpoint.startsWith("https://") ||
+    !candidate.keys ||
+    typeof candidate.keys.p256dh !== "string" ||
+    typeof candidate.keys.auth !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    endpoint: candidate.endpoint,
+    expirationTime:
+      typeof candidate.expirationTime === "number"
+        ? candidate.expirationTime
+        : null,
+    keys: {
+      p256dh: candidate.keys.p256dh,
+      auth: candidate.keys.auth,
+    },
+  } satisfies WebPushSubscription;
+};
+
+export const webPushSubscriptionId = async (subscription: WebPushSubscription) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    textEncoder.encode(subscription.endpoint),
+  );
+  return bytesToHex(new Uint8Array(digest)).slice(0, 32);
+};
+
+export const readWebPushIndex = async (kv: ReminderKv, userId: string) => {
+  const index = parseJson<WebPushIndex>(await kv.get(webPushIndexKey(userId)));
+  return uniqueSortedStrings(
+    Array.isArray(index?.subscriptionIds) ? index.subscriptionIds : [],
+  );
+};
+
+export const writeWebPushIndex = async (
+  kv: ReminderKv,
+  userId: string,
+  subscriptionIds: string[],
+  updatedAtIso = new Date().toISOString(),
+) => {
+  const normalizedSubscriptionIds = uniqueSortedStrings(subscriptionIds);
+  if (normalizedSubscriptionIds.length === 0) {
+    await kv.delete(webPushIndexKey(userId));
+    return;
+  }
+
+  const index: WebPushIndex = {
+    userId,
+    subscriptionIds: normalizedSubscriptionIds,
+    updatedAtIso,
+  };
+  await kv.put(webPushIndexKey(userId), JSON.stringify(index));
+};
+
+export const removeWebPushSubscription = async (
+  kv: ReminderKv,
+  userId: string,
+  subscriptionId: string,
+) => {
+  const subscriptionIds = await readWebPushIndex(kv, userId);
+  await Promise.all([
+    kv.delete(webPushKey(userId, subscriptionId)),
+    writeWebPushIndex(
+      kv,
+      userId,
+      subscriptionIds.filter((item) => item !== subscriptionId),
+    ),
+  ]);
+};
+
 export const listAllKeys = async (
   kv: ReminderKv,
   prefix: string,
@@ -326,6 +482,10 @@ export const listPendingReminders = async (
 };
 
 export const buildBarkUrl = (reminder: ReminderRecord) => {
+  if (!reminder.barkUrl) {
+    throw new Error("missing barkUrl");
+  }
+
   const url = new URL(reminder.barkUrl);
   const path = url.pathname.replace(/\/$/, "");
   url.pathname = `${path}/${encodeURIComponent(reminder.title)}/${encodeURIComponent(reminder.message)}`;
