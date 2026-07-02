@@ -8,8 +8,6 @@ import {
   type StaminaState,
 } from "@/lib/staminaDefaults";
 
-const RECOVERY_INTERVAL_MINUTES = 5;
-const DAILY_RECOVERY_MAX = Math.floor((24 * 60) / RECOVERY_INTERVAL_MINUTES);
 const FRIEND_GIFT_TOTAL = 30 * 5;
 const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
 const REMINDER_SETTINGS_STORAGE_KEY = "thunder-fighter-reminder-settings";
@@ -156,6 +154,7 @@ const buildStoredPayload = (
   lastTime: state.currentTime,
   state: {
     currentStamina: state.currentStamina,
+    recoveryIntervalMinutes: state.recoveryIntervalMinutes,
     maxStamina: state.maxStamina,
     activityReward: state.activityReward,
     miniProgramSignIn: state.miniProgramSignIn,
@@ -288,6 +287,15 @@ const estimateCurrentStamina = (
       DEFAULT_STAMINA_STATE.maxStamina,
     ),
   );
+  const recoveryIntervalMinutes = Math.max(
+    1,
+    toPositiveInt(
+      getStoredNumber(
+        stored.state.recoveryIntervalMinutes,
+        DEFAULT_STAMINA_STATE.recoveryIntervalMinutes,
+      ),
+    ),
+  );
   const cappedCurrent = Math.min(baseCurrent, baseMax);
 
   if (!lastTime) {
@@ -298,7 +306,7 @@ const estimateCurrentStamina = (
   const lastMinutes = parseMinutes(lastTime);
   const elapsedMinutes = Math.max(0, nowMinutes - lastMinutes);
   const recovered = Math.floor(
-    elapsedMinutes / RECOVERY_INTERVAL_MINUTES,
+    elapsedMinutes / recoveryIntervalMinutes,
   );
 
   return Math.min(baseMax, cappedCurrent + recovered);
@@ -395,6 +403,9 @@ export default function Home() {
   const [currentStamina, setCurrentStamina] = useState(
     DEFAULT_STAMINA_STATE.currentStamina,
   );
+  const [recoveryIntervalMinutes, setRecoveryIntervalMinutes] = useState(
+    DEFAULT_STAMINA_STATE.recoveryIntervalMinutes,
+  );
   const [maxStamina, setMaxStamina] = useState(
     DEFAULT_STAMINA_STATE.maxStamina,
   );
@@ -449,6 +460,7 @@ export default function Home() {
   const applyState = (state: StaminaState) => {
     setCurrentTime(state.currentTime);
     setCurrentStamina(state.currentStamina);
+    setRecoveryIntervalMinutes(state.recoveryIntervalMinutes);
     setMaxStamina(state.maxStamina);
     setActivityReward(state.activityReward);
     setMiniProgramSignIn(state.miniProgramSignIn);
@@ -530,6 +542,7 @@ export default function Home() {
     const state: StaminaState = {
       currentTime,
       currentStamina,
+      recoveryIntervalMinutes,
       maxStamina,
       activityReward,
       miniProgramSignIn,
@@ -553,6 +566,7 @@ export default function Home() {
     maxStamina,
     miniProgramSignIn,
     otherStamina,
+    recoveryIntervalMinutes,
     storageDateKey,
     storageReady,
   ]);
@@ -845,14 +859,19 @@ export default function Home() {
     [currentTime],
   );
   const minutesUntilMidnight = Math.max(0, 24 * 60 - minutesSinceMidnight);
-  const naturalRecovery = Math.floor(
-    minutesUntilMidnight / RECOVERY_INTERVAL_MINUTES,
-  );
   const safeCurrent = toPositiveInt(currentStamina);
+  const safeRecoveryInterval = Math.max(
+    1,
+    toPositiveInt(recoveryIntervalMinutes),
+  );
   const safeMax = toPositiveInt(maxStamina);
+  const dailyRecoveryMax = Math.floor((24 * 60) / safeRecoveryInterval);
+  const naturalRecovery = Math.floor(
+    minutesUntilMidnight / safeRecoveryInterval,
+  );
   const expectedAtMidnight = safeCurrent + naturalRecovery;
   const overflow = Math.max(0, expectedAtMidnight - safeMax);
-  const fullRecoveryMinutes = safeMax * RECOVERY_INTERVAL_MINUTES;
+  const fullRecoveryMinutes = safeMax * safeRecoveryInterval;
   const latestEmptyStartMinutes = Math.max(
     0,
     24 * 60 - fullRecoveryMinutes,
@@ -877,7 +896,7 @@ export default function Home() {
   const minutesLeft = minutesUntilMidnight % 60;
   const overflowActive = overflow > 0;
   const missingStamina = Math.max(0, safeMax - safeCurrent);
-  const minutesToFull = missingStamina * RECOVERY_INTERVAL_MINUTES;
+  const minutesToFull = missingStamina * safeRecoveryInterval;
   const remainingRecovery = Math.min(naturalRecovery, missingStamina);
   const fullTimeTotalMinutes = minutesSinceMidnight + minutesToFull;
   const fullTimeDayOffset = Math.floor(fullTimeTotalMinutes / (24 * 60));
@@ -1073,9 +1092,9 @@ export default function Home() {
                     自然恢复
                   </h2>
                 </div>
-                <span className="panel-chip">5分钟+1</span>
+                <span className="panel-chip">上限：{dailyRecoveryMax}/日</span>
               </div>
-              <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <div className="mt-6 grid gap-4 sm:grid-cols-4">
                 <label className="text-sm font-medium text-foreground">
                   当前时间
                   <input
@@ -1099,6 +1118,19 @@ export default function Home() {
                   />
                 </label>
                 <label className="text-sm font-medium text-foreground">
+                  恢复时间/分钟
+                  <input
+                    className={inputBase}
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={recoveryIntervalMinutes}
+                    onChange={(event) =>
+                      setRecoveryIntervalMinutes(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label className="text-sm font-medium text-foreground">
                   体力上限
                   <input
                     className={inputBase}
@@ -1113,7 +1145,7 @@ export default function Home() {
                 </label>
               </div>
               <div className="mt-5 rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-3 text-xs text-muted shadow-[inset_0_0_0_1px_rgba(7,18,37,0.85)]">
-                每日重置；满体力后不再自然恢复。上限：{DAILY_RECOVERY_MAX}/日。
+                每日重置；满体力后不再自然恢复。
               </div>
             </div>
 

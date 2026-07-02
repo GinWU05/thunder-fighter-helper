@@ -1,6 +1,7 @@
 export type StaminaState = {
   currentTime: string;
   currentStamina: number;
+  recoveryIntervalMinutes: number;
   maxStamina: number;
   activityReward: boolean;
   miniProgramSignIn: boolean;
@@ -13,6 +14,7 @@ export type StaminaState = {
 export const DEFAULT_STAMINA_STATE: StaminaState = {
   currentTime: "12:00",
   currentStamina: 0,
+  recoveryIntervalMinutes: 5,
   maxStamina: 120,
   activityReward: false,
   miniProgramSignIn: false,
