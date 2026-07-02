@@ -14,6 +14,8 @@ const FRIEND_GIFT_TOTAL = 30 * 5;
 const REMINDER_OWNER_STORAGE_KEY = "thunder-fighter-reminder-owner";
 const REMINDER_SETTINGS_STORAGE_KEY = "thunder-fighter-reminder-settings";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const REMINDER_LOADING_DELAY_MS = 220;
+const REMINDER_MIN_LOADING_MS = 400;
 
 type ReminderOwner = {
   username: string;
@@ -32,6 +34,14 @@ type ReminderSettings = {
   barkUrl: string;
   title: string;
 };
+
+type ReminderAction =
+  | "register"
+  | "test-bark"
+  | "unregister"
+  | "create"
+  | "refresh"
+  | `cancel:${string}`;
 
 const formatTime = (date: Date) => {
   const hours = String(date.getHours()).padStart(2, "0");
@@ -83,6 +93,34 @@ const addDaysToDateKey = (dateKey: string, days: number) => {
 
 const formatTimeWithSeconds = (value: string) =>
   value.split(":").length === 2 ? `${value}:00` : value;
+
+const formatTimeForInput = (value: string) =>
+  value.split(":").slice(0, 2).join(":");
+
+const formatReminderTime = (value: string) =>
+  new Date(value).toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const showInputPicker = (input: HTMLInputElement) => {
+  if (input.disabled) {
+    return;
+  }
+
+  try {
+    (
+      input as HTMLInputElement & {
+        showPicker?: () => void;
+      }
+    ).showPicker?.();
+  } catch {
+    // Some browsers only allow showPicker from direct pointer activation.
+  }
+};
 
 const parseLocalDateTime = (dateValue: string, timeValue: string) => {
   const [year, month, day] = dateValue.split("-").map((part) => Number(part));
@@ -391,9 +429,19 @@ export default function Home() {
     [],
   );
   const [reminderStatus, setReminderStatus] = useState("");
-  const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderAction, setReminderAction] = useState<ReminderAction | null>(
+    null,
+  );
+  const [visibleReminderAction, setVisibleReminderAction] =
+    useState<ReminderAction | null>(null);
   const [reminderListLoading, setReminderListLoading] = useState(false);
   const [reminderSettingsReady, setReminderSettingsReady] = useState(false);
+  const reminderBusy =
+    reminderAction !== null || visibleReminderAction !== null;
+  const visibleReminderActionRef = useRef<ReminderAction | null>(null);
+  const visibleReminderActionStartedAt = useRef(0);
+  const loadingDelayTimer = useRef<number | null>(null);
+  const loadingHideTimer = useRef<number | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [storageDateKey, setStorageDateKey] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
@@ -560,8 +608,72 @@ export default function Home() {
     );
   }, [reminderBarkUrl, reminderSettingsReady, reminderTitle]);
 
+  useEffect(
+    () => () => {
+      if (loadingDelayTimer.current) {
+        window.clearTimeout(loadingDelayTimer.current);
+      }
+      if (loadingHideTimer.current) {
+        window.clearTimeout(loadingHideTimer.current);
+      }
+    },
+    [],
+  );
+
+  const clearReminderLoadingTimers = () => {
+    if (loadingDelayTimer.current) {
+      window.clearTimeout(loadingDelayTimer.current);
+      loadingDelayTimer.current = null;
+    }
+    if (loadingHideTimer.current) {
+      window.clearTimeout(loadingHideTimer.current);
+      loadingHideTimer.current = null;
+    }
+  };
+
+  const beginReminderAction = (action: ReminderAction) => {
+    clearReminderLoadingTimers();
+    setReminderAction(action);
+    loadingDelayTimer.current = window.setTimeout(() => {
+      visibleReminderActionRef.current = action;
+      visibleReminderActionStartedAt.current = window.performance.now();
+      setVisibleReminderAction(action);
+      loadingDelayTimer.current = null;
+    }, REMINDER_LOADING_DELAY_MS);
+  };
+
+  const finishReminderAction = () => {
+    if (loadingDelayTimer.current) {
+      window.clearTimeout(loadingDelayTimer.current);
+      loadingDelayTimer.current = null;
+    }
+    setReminderAction(null);
+
+    if (!visibleReminderActionRef.current) {
+      return;
+    }
+
+    const elapsed =
+      window.performance.now() - visibleReminderActionStartedAt.current;
+    const hideVisibleAction = () => {
+      visibleReminderActionRef.current = null;
+      setVisibleReminderAction(null);
+      loadingHideTimer.current = null;
+    };
+
+    if (elapsed < REMINDER_MIN_LOADING_MS) {
+      loadingHideTimer.current = window.setTimeout(
+        hideVisibleAction,
+        REMINDER_MIN_LOADING_MS - elapsed,
+      );
+      return;
+    }
+
+    hideVisibleAction();
+  };
+
   const handleRegisterReminderUser = async () => {
-    setReminderBusy(true);
+    beginReminderAction("register");
     setReminderStatus("");
     try {
       const payload = await apiJson<ReminderOwner>("/api/reminders/register", {
@@ -581,7 +693,7 @@ export default function Home() {
         error instanceof Error ? error.message : "注册失败",
       );
     } finally {
-      setReminderBusy(false);
+      finishReminderAction();
     }
   };
 
@@ -591,7 +703,7 @@ export default function Home() {
       return;
     }
 
-    setReminderBusy(true);
+    beginReminderAction("unregister");
     setReminderStatus("");
     try {
       await apiJson("/api/reminders/user", {
@@ -607,7 +719,7 @@ export default function Home() {
         error instanceof Error ? error.message : "解绑失败",
       );
     } finally {
-      setReminderBusy(false);
+      finishReminderAction();
     }
   };
 
@@ -617,7 +729,7 @@ export default function Home() {
       return;
     }
 
-    setReminderBusy(true);
+    beginReminderAction("test-bark");
     setReminderStatus("");
     try {
       await apiJson("/api/reminders/test-bark", {
@@ -634,7 +746,7 @@ export default function Home() {
         error instanceof Error ? error.message : "测试通知失败",
       );
     } finally {
-      setReminderBusy(false);
+      finishReminderAction();
     }
   };
 
@@ -650,7 +762,7 @@ export default function Home() {
       return;
     }
 
-    setReminderBusy(true);
+    beginReminderAction("create");
     setReminderStatus("");
     try {
       const payload = await apiJson<{ reminder: PendingReminder }>(
@@ -678,7 +790,7 @@ export default function Home() {
         error instanceof Error ? error.message : "创建提醒失败",
       );
     } finally {
-      setReminderBusy(false);
+      finishReminderAction();
     }
   };
 
@@ -688,7 +800,7 @@ export default function Home() {
       return;
     }
 
-    setReminderBusy(true);
+    beginReminderAction(`cancel:${reminderId}`);
     setReminderStatus("");
     try {
       await apiJson("/api/reminders/cancel", {
@@ -702,7 +814,7 @@ export default function Home() {
         error instanceof Error ? error.message : "取消提醒失败",
       );
     } finally {
-      setReminderBusy(false);
+      finishReminderAction();
     }
   };
 
@@ -712,6 +824,7 @@ export default function Home() {
       return;
     }
 
+    beginReminderAction("refresh");
     setReminderListLoading(true);
     setReminderStatus("");
     try {
@@ -722,6 +835,7 @@ export default function Home() {
         error instanceof Error ? error.message : "刷新列表失败",
       );
     } finally {
+      finishReminderAction();
       setReminderListLoading(false);
     }
   };
@@ -1133,7 +1247,7 @@ export default function Home() {
                       type="url"
                       value={reminderBarkUrl}
                       placeholder="https://api.day.app/YOUR_KEY/"
-                      disabled={reminderBusy}
+                      disabled={Boolean(reminderOwner) || reminderBusy}
                       onChange={(event) =>
                         setReminderBarkUrl(event.target.value)
                       }
@@ -1159,28 +1273,37 @@ export default function Home() {
                   </div>
                   <div className={reminderButtonGroupBase}>
                     <button
-                      className="rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-w-[78px] rounded-2xl border border-accent-blue/35 bg-accent-blue/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
+                      aria-busy={reminderAction === "register"}
                       disabled={Boolean(reminderOwner) || reminderBusy}
                       onClick={handleRegisterReminderUser}
                     >
-                      注册
+                      {visibleReminderAction === "register"
+                        ? "注册中..."
+                        : "注册"}
                     </button>
                     <button
-                      className="rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-w-[96px] rounded-2xl border border-accent-green/35 bg-accent-green/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
+                      aria-busy={reminderAction === "test-bark"}
                       disabled={!reminderOwner || reminderBusy}
                       onClick={handleTestBark}
                     >
-                      测试 Bark
+                      {visibleReminderAction === "test-bark"
+                        ? "测试中..."
+                        : "测试 Bark"}
                     </button>
                     <button
-                      className="rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-w-[78px] rounded-2xl border border-accent-red/40 bg-accent-red/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
+                      aria-busy={reminderAction === "unregister"}
                       disabled={!reminderOwner || reminderBusy}
                       onClick={handleUnregisterReminderUser}
                     >
-                      解绑
+                      {visibleReminderAction === "unregister"
+                        ? "解绑中..."
+                        : "解绑"}
                     </button>
                   </div>
                 </div>
@@ -1202,41 +1325,63 @@ export default function Home() {
                     <div className="text-sm font-medium text-foreground">
                       提醒时间
                       <div className="datetime-combo">
-                        <input
-                          className={inputBase}
-                          type="date"
-                          value={reminderDueDate}
-                          disabled={!reminderOwner || reminderBusy}
-                          onChange={(event) =>
-                            setReminderDueDate(event.target.value)
-                          }
-                        />
-                        <input
-                          className={inputBase}
-                          type="time"
-                          step={1}
-                          value={reminderDueTime}
-                          disabled={!reminderOwner || reminderBusy}
-                          onChange={(event) =>
-                            setReminderDueTime(
-                              formatTimeWithSeconds(event.target.value),
-                            )
-                          }
-                        />
+                        <label
+                          className="datetime-input-wrap"
+                          htmlFor="reminder-due-date"
+                        >
+                          <input
+                            id="reminder-due-date"
+                            aria-label="提醒日期"
+                            className={inputBase}
+                            type="date"
+                            value={reminderDueDate}
+                            disabled={!reminderOwner || reminderBusy}
+                            onClick={(event) =>
+                              showInputPicker(event.currentTarget)
+                            }
+                            onChange={(event) =>
+                              setReminderDueDate(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label
+                          className="datetime-input-wrap"
+                          htmlFor="reminder-due-time"
+                        >
+                          <input
+                            id="reminder-due-time"
+                            aria-label="提醒时间"
+                            className={inputBase}
+                            type="time"
+                            value={formatTimeForInput(reminderDueTime)}
+                            disabled={!reminderOwner || reminderBusy}
+                            onClick={(event) =>
+                              showInputPicker(event.currentTarget)
+                            }
+                            onChange={(event) =>
+                              setReminderDueTime(
+                                formatTimeWithSeconds(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
                   <div className={reminderButtonGroupBase}>
                     <button
-                      className="rounded-2xl border border-accent-gold/45 bg-accent-gold/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-gold/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-w-[96px] rounded-2xl border border-accent-gold/45 bg-accent-gold/15 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-gold/25 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
+                      aria-busy={reminderAction === "create"}
                       disabled={!reminderOwner || reminderBusy}
                       onClick={handleCreateReminder}
                     >
-                      创建提醒
+                      {visibleReminderAction === "create"
+                        ? "创建中..."
+                        : "创建提醒"}
                     </button>
                     <button
-                      className="inline-flex items-center gap-2 rounded-2xl border border-accent-blue/30 bg-surface-strong/75 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex min-w-[106px] items-center justify-center gap-2 rounded-2xl border border-accent-blue/30 bg-surface-strong/75 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-accent-blue/15 disabled:cursor-not-allowed disabled:opacity-50"
                       type="button"
                       aria-busy={reminderListLoading}
                       disabled={
@@ -1244,13 +1389,15 @@ export default function Home() {
                       }
                       onClick={handleRefreshReminders}
                     >
-                      {reminderListLoading ? (
+                      {visibleReminderAction === "refresh" ? (
                         <span
                           className="h-3 w-3 rounded-full border border-current border-r-transparent motion-safe:animate-spin"
                           aria-hidden="true"
                         />
                       ) : null}
-                      {reminderListLoading ? "刷新中..." : "刷新列表"}
+                      {visibleReminderAction === "refresh"
+                        ? "刷新中..."
+                        : "刷新列表"}
                     </button>
                     {reminderStatus ? (
                       <span className="text-sm text-muted">{reminderStatus}</span>
@@ -1258,7 +1405,8 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-3">
-                    {reminderListLoading && pendingReminders.length === 0 ? (
+                    {visibleReminderAction === "refresh" &&
+                    pendingReminders.length === 0 ? (
                       <div className="rounded-2xl border border-accent-blue/20 bg-surface-strong/70 px-4 py-4 text-sm text-muted">
                         加载提醒中...
                       </div>
@@ -1277,17 +1425,22 @@ export default function Home() {
                               {reminder.message}
                             </p>
                             <p className="mt-1 text-xs text-muted">
-                              {new Date(reminder.dueAtIso).toLocaleString()} · retry{" "}
+                              {formatReminderTime(reminder.dueAtIso)} · retry{" "}
                               {reminder.retryCount}
                             </p>
                           </div>
                           <button
-                            className="rounded-xl border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="min-w-[72px] rounded-xl border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
+                            aria-busy={
+                              reminderAction === `cancel:${reminder.id}`
+                            }
                             disabled={reminderBusy}
                             onClick={() => handleCancelReminder(reminder.id)}
                           >
-                            取消
+                            {visibleReminderAction === `cancel:${reminder.id}`
+                              ? "取消中..."
+                              : "取消"}
                           </button>
                         </div>
                       ))
