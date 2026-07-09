@@ -1215,10 +1215,6 @@ export default function Home() {
   );
   const latestEmptyStartTime = formatMinutesToTime(latestEmptyStartMinutes);
   const maxStaminaToKeepNow = Math.max(0, safeMax - naturalRecovery);
-  // 跨日满体：现在该花多少 / 跨日实际能到多少
-  const spendNowToAvoidOverflow = Math.max(0, safeCurrent - maxStaminaToKeepNow);
-  const midnightProjected = Math.min(safeMax, expectedAtMidnight);
-  const midnightShortfall = Math.max(0, safeMax - expectedAtMidnight);
   const activityTotal = activityReward ? 100 : 0;
   const miniProgramTotal = miniProgramSignIn ? 30 : 0;
   const friendGiftTotal = friendGift ? FRIEND_GIFT_TOTAL : 0;
@@ -1367,21 +1363,6 @@ export default function Home() {
   );
   const animatedMaxStaminaToKeep = useCountUp(
     maxStaminaToKeepNow,
-    700,
-    !prefersReducedMotion,
-  );
-  const animatedSpendNow = useCountUp(
-    spendNowToAvoidOverflow,
-    700,
-    !prefersReducedMotion,
-  );
-  const animatedMidnightProjected = useCountUp(
-    midnightProjected,
-    700,
-    !prefersReducedMotion,
-  );
-  const animatedMidnightShortfall = useCountUp(
-    midnightShortfall,
     700,
     !prefersReducedMotion,
   );
@@ -2063,57 +2044,29 @@ export default function Home() {
               <div className="mt-4 rounded-2xl border border-accent-blue/25 bg-surface-strong/75 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(7,18,37,0.8)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs text-muted">跨日满体</p>
+                    <p className="text-xs text-muted">回满倒推</p>
                     <p className="mt-1 text-sm font-medium text-foreground">
-                      {overflow > 0
-                        ? "建议花掉"
-                        : midnightShortfall > 0
-                          ? "跨日预计"
-                          : "行动建议"}
+                      最晚清空时间
                     </p>
                   </div>
-                  <p className="text-3xl font-semibold text-accent-blue font-[var(--font-display)] tabular-nums">
-                    {overflow > 0
-                      ? animatedSpendNow
-                      : midnightShortfall > 0
-                        ? `${animatedMidnightProjected}/${animatedMax}`
-                        : "不用动"}
+                  <p className="text-3xl font-semibold text-accent-blue font-[var(--font-display)]">
+                    {latestEmptyStartTime}
                   </p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-accent-blue/20 bg-surface/70 px-3 py-2">
-                    <p className="text-[11px] text-muted">保留上限</p>
-                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)] tabular-nums">
-                      ≤ {animatedMaxStaminaToKeep}
+                    <p className="text-[11px] text-muted">回满耗时</p>
+                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)]">
+                      {fullRecoveryMinutes} 分钟
                     </p>
                   </div>
                   <div className="rounded-xl border border-accent-blue/20 bg-surface/70 px-3 py-2">
-                    <p className="text-[11px] text-muted">
-                      {overflow > 0
-                        ? "不动将浪费"
-                        : midnightShortfall > 0
-                          ? "还差"
-                          : "跨日预计"}
-                    </p>
-                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)] tabular-nums">
-                      {overflow > 0
-                        ? `${animatedOverflow} 点`
-                        : midnightShortfall > 0
-                          ? `${animatedMidnightShortfall} 点`
-                          : `${animatedMidnightProjected}/${animatedMax}`}
+                    <p className="text-[11px] text-muted">当前保留</p>
+                    <p className="mt-1 text-base font-semibold text-accent-blue font-[var(--font-display)]">
+                      ≤ {animatedMaxStaminaToKeep}
                     </p>
                   </div>
                 </div>
-                <p className="mt-3 text-[11px] leading-relaxed text-muted">
-                  {overflow > 0
-                    ? `现在花 ${spendNowToAvoidOverflow}，跨日满且 0 浪费`
-                    : midnightShortfall > 0
-                      ? `自然恢复不够顶满，跨日最多 ${midnightProjected}`
-                      : "什么都不用做，跨日正好满"}
-                  {" · "}
-                  0→满 {fullRecoveryMinutes} 分钟 · 最晚 {latestEmptyStartTime}{" "}
-                  开刷
-                </p>
               </div>
             </div>
 
