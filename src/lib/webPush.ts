@@ -148,9 +148,10 @@ const encryptPayload = async (
     false,
     [],
   );
-  // workers-types omits ECDH deriveBits params; runtime shape is standard WebCrypto.
+  // Narrow CF workers-types + Next DOM libs disagree on ECDH deriveBits params.
+  // Runtime shape is standard WebCrypto ECDH.
   const sharedSecretRaw = await crypto.subtle.deriveBits(
-    { name: "ECDH", public: receiverKey } as unknown as SubtleCryptoDeriveKeyAlgorithm,
+    { name: "ECDH", public: receiverKey } as never,
     senderKeys.privateKey,
     256,
   );
