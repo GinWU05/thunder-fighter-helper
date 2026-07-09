@@ -164,18 +164,30 @@ body {
 
 .datetime-combo {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  /* Chinese date like 2026年7月10日 needs more room than HH:mm */
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.75fr);
   margin-top: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .datetime-input-wrap {
   display: block;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .datetime-combo .input-field {
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   margin-top: 0;
+  box-sizing: border-box;
+  /* slightly tighter so long zh-CN date fits the half-pill */
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .datetime-combo .datetime-input-wrap:first-child .input-field {
@@ -189,6 +201,8 @@ body {
   border-bottom-left-radius: 0;
 }
 
+/* iOS Safari: date/time inputs ignore container width without these */
+input[type="date"].input-field,
 input[type="time"].input-field {
   width: 100%;
   max-width: 100%;
@@ -201,16 +215,41 @@ input[type="time"].input-field {
 }
 
 @supports (-webkit-touch-callout: none) {
+  input[type="date"].input-field,
   input[type="time"].input-field {
     -webkit-appearance: none;
     appearance: none;
   }
 
+  input[type="date"].input-field::-webkit-date-and-time-value,
+  input[type="date"].input-field::-webkit-datetime-edit,
   input[type="time"].input-field::-webkit-date-and-time-value,
   input[type="time"].input-field::-webkit-datetime-edit {
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    overflow: hidden;
+  }
+
+  /* iOS centers the date string and inflates control width by default */
+  input[type="date"].input-field::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  input[type="date"].input-field::-webkit-calendar-picker-indicator {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+@media (max-width: 390px) {
+  .datetime-combo {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.7fr);
+  }
+
+  .datetime-combo .input-field {
+    padding-left: 10px;
+    padding-right: 10px;
   }
 }
 
