@@ -130,14 +130,17 @@ const encryptPayload = async (
   const receiverPublicKey = base64UrlToBytes(subscription.keys.p256dh);
   const authSecret = base64UrlToBytes(subscription.keys.auth);
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const senderKeys = await crypto.subtle.generateKey(
+  // workers-types types generateKey as CryptoKey | CryptoKeyPair; ECDH always returns a pair.
+  const senderKeys = (await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
     ["deriveBits"],
+  )) as CryptoKeyPair;
+  const senderPublicKeyRaw = await crypto.subtle.exportKey(
+    "raw",
+    senderKeys.publicKey,
   );
-  const senderPublicKey = new Uint8Array(
-    await crypto.subtle.exportKey("raw", senderKeys.publicKey),
-  );
+  const senderPublicKey = new Uint8Array(senderPublicKeyRaw as ArrayBuffer);
   const receiverKey = await crypto.subtle.importKey(
     "raw",
     receiverPublicKey,
@@ -145,13 +148,13 @@ const encryptPayload = async (
     false,
     [],
   );
-  const sharedSecret = new Uint8Array(
-    await crypto.subtle.deriveBits(
-      { name: "ECDH", public: receiverKey },
-      senderKeys.privateKey,
-      256,
-    ),
+  // workers-types omits ECDH deriveBits params; runtime shape is standard WebCrypto.
+  const sharedSecretRaw = await crypto.subtle.deriveBits(
+    { name: "ECDH", public: receiverKey } as unknown as SubtleCryptoDeriveKeyAlgorithm,
+    senderKeys.privateKey,
+    256,
   );
+  const sharedSecret = new Uint8Array(sharedSecretRaw);
   const authPrk = await hmacSha256(authSecret, sharedSecret);
   const ikm = await hkdfExpand(
     authPrk,
